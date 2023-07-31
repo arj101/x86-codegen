@@ -536,13 +536,11 @@ x86! {Int,
     0xF1, Int1Dbg;
 }
 
-//REX.W = 0b01001000
-const REX_W: u8 = 0b01001000;
 
 x86! {MovR64,
-    [REX_W, 0x89], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op2, *op1)]
-    [REX_W, 0x89], MR, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op2, *op1)]
-    [REX_W, 0x8B], RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
+    [REX.W, 0x89], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op2, *op1)]
+    [REX.W, 0x89], MR, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op2, *op1)]
+    [REX.W, 0x8B], RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
 }
 
 fn modrm_raw_byte<P: Into<u8>, Q: Into<u8>, R: Into<u8>>(mod_val: P, reg_opcode: Q, rm: R) -> u8 {
