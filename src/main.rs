@@ -122,14 +122,6 @@ enum ModRMsub {
     Reg(GPReg),             //Mod = 3
 }
 
-// impl From<ModRMsub> for u8 {
-//     fn from(val: ModRMsub) -> Self {
-//         use crate::ModRMsub::*;
-//         match val {
-//             RegAddr(reg) => u8::from(reg), // Disp32(
-//         }
-//     }
-// }
 
 impl From<Mod> for u8 {
     fn from(val: Mod) -> Self {
@@ -192,65 +184,9 @@ struct ModRMImm {
     rm: GPReg,
 }
 
-// //Represents an assembly MOV operation
-// enum Mov {
-//     ///`mov dst, src`
-//     RegToReg { dst: GPRegister, src: GPRegister },
-//
-//     /// Move immediate value to dst
-//     ///`mov dst, value_u32`
-//     ValToReg { dst: GPRegister, value: u32 },
-//
-//     ///`mov [dst], src`
-//     RegToRegAddr { dst: GPRegister, src: GPRegister },
-//
-//     ///`mov dst, [src]`
-//     RegAddrToReg { dst: GPRegister, src: GPRegister },
-// }
-//
-// impl Encodable for Mov {
-//     fn encode(&self) -> Vec<u8> {
-//         use crate::Mov::*;
-//
-//         match self {
-//             RegToReg { dst, src } => [0x89, modrm_raw_byte(Mod::Reg, *src, *dst)].to_vec(),
-//
-//             ValToReg { dst, value } => {
-//                 let val_bytes = value.to_le_bytes();
-//                 let reg_byte = u8::from(*dst);
-//                 assert!(reg_byte <= 0b111);
-//
-//                 [
-//                     0xB8 + u8::from(*dst),
-//                     val_bytes[0],
-//                     val_bytes[1],
-//                     val_bytes[2],
-//                     val_bytes[3],
-//                 ]
-//                 .to_vec()
-//             }
-//
-//             RegToRegAddr { dst, src } => [
-//                 0x89,
-//                 modrm_raw_byte(Mod::RegAddr, u8::from(*src), u8::from(*dst)),
-//             ]
-//             .to_vec(),
-//
-//             RegAddrToReg { dst, src } => [0x8B, modrm_raw_byte(Mod::RegAddr, *src, *dst)].to_vec(),
-//         }
-//     }
-// }
 
-struct Ret;
 
-impl Encodable for Ret {
-    fn encode(&self) -> Vec<u8> {
-        vec![0xC3]
-    }
-    fn len(&self) -> u32 {
-        self.encode().len() as u32
-    }
-}
+x86!(0xC3, Ret);
 
 impl Encodable for u8 {
     fn encode(&self) -> Vec<u8> {
@@ -318,129 +254,9 @@ fn code<T: Encodable>(code: T) -> Box<T> {
     Box::new(code)
 }
 
-macro_rules! ins_32 {
-    ($name:ident,
-        $($op:expr, $sub_ins:ident $(,)? $($field:ident : $type:ty),* =>
-            [ $(ModRM($mod_val:expr, $reg:expr, $rm:expr))? $(Imm($imm_val:expr))? $(,)? ]
-)*) => {
-        #[derive(Copy, Clone, Debug)]
-        enum $name {
-            $(
-                $sub_ins($($type),*),
-            )*
-        }
-
-        impl Encodable for $name {
-            fn encode(&self) -> Vec<u8> {
-                match self {
-                    $(
-                         $name::$sub_ins($($field),*) => {
-                              let mut ins_vec = Vec::with_capacity(1 $(+ {$rm; 1})? $(+ {$imm_val; 4})?);
-                              ins_vec.push($op);
-                              $(ins_vec.push(modrm_raw_byte($mod_val, $reg, $rm));)?
-                              $(
-                                  let imm_bytes = $imm_val.to_le_bytes();
-                                  for byte in imm_bytes { ins_vec.push(byte); }
-                              )?
-                              ins_vec
-                        }
-                    )*
-                }
-            }
-            fn len(&self) -> u32 {
-                self.encode().len() as u32
-            }
-        }
-    };
+x86!{Loop,
+    0xE2, Rel8, start:LabelField => Rel8(start)
 }
-
-macro_rules! ins_32e {
-    ($name:ident,
-        $([$($op:expr),+], $sub_ins:ident $(,)? $($field:ident : $type:ty),* =>
-            [ $(ModRM($mod_val:expr, $reg:expr, $rm:expr))? $(Imm($imm_val:expr))? $(,)? ]
-)*) => {
-        #[derive(Copy, Clone, Debug)]
-        enum $name {
-            $(
-                $sub_ins($($type),*),
-            )*
-        }
-
-        impl Encodable for $name {
-            fn encode(&self) -> Vec<u8> {
-                match self {
-                    $(
-                         $name::$sub_ins($($field),*) => {
-                              let mut ins_vec = Vec::with_capacity(1 $(+ {$rm; 1})? $(+ {$imm_val; 4})?);
-                              $(ins_vec.push($op);)+
-                              $(ins_vec.push(modrm_raw_byte($mod_val, $reg, $rm));)?
-                              $(
-                                  let imm_bytes = $imm_val.to_le_bytes();
-                                  for byte in imm_bytes { ins_vec.push(byte); }
-                              )?
-                              ins_vec
-                        }
-                    )*
-                }
-            }
-            fn len(&self) -> u32 {
-                self.encode().len() as u32
-            }
-        }
-    };
-}
-
-macro_rules! ins32_label {
-    ($name:ident,
-        $([$($op:expr),+], $sub_ins:ident => $(Rel32($label32:ident))? $(Rel8($label8:ident))?
-)*) => {
-        #[derive(Clone, Debug)]
-        enum $name {
-            $(
-                $sub_ins(LabelField),
-            )*
-        }
-
-        impl Encodable for $name {
-            fn encode(&self) -> Vec<u8> {
-                match self {
-                    $(
-                         $name::$sub_ins($($label32)? $($label8)?) => {
-                              let mut ins_vec = Vec::with_capacity(1+4);
-                              $(ins_vec.push($op);)+
-                              $(for b in $label32.off32().to_le_bytes() { ins_vec.push(b) } )?
-                              $(for b in $label8.off8().to_le_bytes() { ins_vec.push(b) } )?
-                              ins_vec
-                        }
-                    )*
-                }
-            }
-            fn len(&self) -> u32 {
-                match self {
-                    $(
-                         $name::$sub_ins($($label32)? $($label8)?) => {
-                                return $({$op; 1}+ )+  $( {$label32; 4})?  $( {$label8; 1})?
-                        }
-                    )*
-                }
-            }
-            fn resolve_reloff(&mut self) -> &mut LabelField {
-                match self {
-                    $(
-                         $name::$sub_ins($($label32)? $($label8)?) => {
-                           $($label32)? $($label8)?
-                        }
-                    )*
-                }
-        }
-            fn need_reloff_resolving(&mut self) -> bool { true }
-        }
-    };
-}
-
-ins32_label!(Loop,
-    [0xE2], Rel8 => Rel8(start)
-);
 
 x86! {Mov,
     0x89, RR, dst:GPReg, src:GPReg => [ModRM(Mod::Reg, *src, *dst)]
@@ -461,16 +277,6 @@ x86!(Adc,
     0x11, MR, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op2, *op1)]
 );
 
-// ins_32!(Add,
-//     0x05, EaxImm, val:u32 => [Imm(*val)]
-//     0x81, RImm, op1:GPReg, val:u32 => [ModRM(Reg, 0, *op1) Imm(*val)]
-//     0x81, MImm, op1:GPReg, val:u32 => [ModRM(RegAddr, 0, *op1) Imm(*val)]
-//
-//     0x01, RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op2, *op1)]
-//     0x01, MR, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op2, *op1)]
-//     0x03, RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
-// );
-//
 
 x86! {
     Add,
@@ -509,13 +315,8 @@ x86! {Call,
     //TODO
 }
 
-x86!(
-    0xf8, Clc => []
-);
-
-x86!(
-    0xfc, Cld => []
-);
+x86!(0xf8, Clc);
+x86!(0xfc, Cld);
 
 x86! {Cmp,
     0x3D, EaxImm, val:u32 => [Imm32(*val)]
@@ -620,7 +421,7 @@ x86! {Cmov,
 }
 
 x86! {Dec,
-   0x48+u8::from(*op1), R, op1:GPReg => []
+   0x48+u8::from(*op1), R, op1:GPReg;
    0xFF, M, op1:GPReg => [ModRM(RegAddr, 1, *op1)] //TODO: why 0x67?
 }
 
@@ -643,20 +444,18 @@ x86! {IMul,
 }
 
 x86! {Inc,
-    0x40+u8::from(*op1), R, op1:GPReg => []
+    0x40+u8::from(*op1), R, op1:GPReg;
     0xFF, M, op1:GPReg => [ModRM(RegAddr, 0, *op1)]
 }
 
-//TODO ins_32!{Jcc}
-//TODO ins_32!{LEA}
+//TODO x86!{LEA}
 
 x86! {Jmp,
-    //TODO rel jump
     0xFF, R, op1:GPReg => [ModRM(Reg, 4, *op1)]
     0xFF, M, op1:GPReg => [ModRM(RegAddr, 4, *op1)]
 }
 
-x86! {JmpRel,
+x86! {Jmp,
     [0xE9], Rel32, label:LabelField => [Rel32(label)]
 }
 
@@ -678,9 +477,9 @@ x86! {Jmp,
     [0x0F, 0x83], NCNear ,label:LabelField => Rel32(label)
     [0x0F, 0x85], NENear ,label:LabelField => Rel32(label)
     [0x0F, 0x8E], NGNear ,label:LabelField => Rel32(label)
-    [0x0F, 0x8C], NGENear,label:LabelField  => Rel32(label)
+    [0x0F, 0x8C], NGENear,label:LabelField => Rel32(label)
     [0x0F, 0x8D], NLNear ,label:LabelField => Rel32(label)
-    [0x0F, 0x8F], NLENear,label:LabelField  => Rel32(label)
+    [0x0F, 0x8F], NLENear,label:LabelField => Rel32(label)
     [0x0F, 0x81], NONear ,label:LabelField => Rel32(label)
     [0x0F, 0x8B], NPNear ,label:LabelField => Rel32(label)
     [0x0F, 0x89], NSNear ,label:LabelField => Rel32(label)
@@ -694,14 +493,14 @@ x86! {Jmp,
 }
 
 x86! {Push,
-    [0x50+u8::from(*op1)], R, op1:GPReg => []
+    [0x50+u8::from(*op1)], R, op1:GPReg;
     [0xFF], M, op1:GPReg => [ModRM(RegAddr, 6, *op1)]
     [0x68], Imm, val:u32 => [Imm32(*val)]
     //TODO
 }
 
 x86! {Pop,
-    [0x58+u8::from(*op1)], R, op1:GPReg => []
+    [0x58+u8::from(*op1)], R, op1:GPReg;
     [0x8F], M, op1:GPReg => [ModRM(RegAddr, 0, *op1)]
     //TODO
 }
@@ -731,10 +530,10 @@ impl Encodable for Label {
 }
 
 x86! {Int,
-    0xCC, Int3Bkp => []
+    0xCC, Int3Bkp;
     0xCD, Imm, val:u8 => [Imm8(val)]
-    0xCE, Int0Ovf => []
-    0xF1, Int1Dbg => []
+    0xCE, Int0Ovf;
+    0xF1, Int1Dbg;
 }
 
 //REX.W = 0b01001000
@@ -790,7 +589,7 @@ fn main() {
         SubRImm(Ecx, 1),
         CmpRImm(Ecx, 0),
         JmpGENear(LabelField::new("loop_start")),
-        Ret,
+        Ret(),
     ];
 
     let code_encoded = gen_code(&mut code);
