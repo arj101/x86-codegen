@@ -265,6 +265,12 @@ x86! {Mov,
     0x88, RM, dst:GPReg, src:GPReg => [ModRM(Mod::RegAddr, *dst, *src)]
 }
 
+x86! {Mov,
+    [0xF3, 0x0F, 0x10], SSrr, dst:GPReg, src:GPReg => [ModRM(Reg, *dst, *src)]
+    [0xF3, 0x0F, 0x10], SSrm, dst:GPReg, src:GPReg => [ModRM(RegAddr, *dst, *src)]
+    [VEX3b.hex0F.hexF3, 0x10], SSavx, dst:GPReg, src:GPReg => [ModRM(RegAddr,*dst, *src)] 
+}
+
 use Mod::*;
 
 x86!(Adc,
@@ -573,6 +579,7 @@ fn main() {
         MovR64RR(Rbx, Rdi),
         MovRImm(Ecx, 20),
         MovRImm(Eax, 0),
+        MovSSrr(Xmm0, Xmm1),
         Label::new("loop_start"),
         // Add::RImm(Eax, 1),
         AddRImm(Eax, 0x2),
