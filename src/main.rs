@@ -122,7 +122,6 @@ enum ModRMsub {
     Reg(GPReg),             //Mod = 3
 }
 
-
 impl From<Mod> for u8 {
     fn from(val: Mod) -> Self {
         use crate::Mod::*;
@@ -171,7 +170,7 @@ trait Encodable {
     fn need_reloff_resolving(&mut self) -> bool {
         false
     }
-    fn resolve_reloff(&mut self) -> &mut LabelField {
+    fn resolve_reloff(&mut self) -> Vec<&mut LabelField> {
         unimplemented!(
             "An instruction that needs a relative offset must implement resolve_reloff() function"
         )
@@ -183,8 +182,6 @@ struct ModRMImm {
     reg: GPReg,
     rm: GPReg,
 }
-
-
 
 x86!(0xC3, Ret);
 
@@ -204,11 +201,12 @@ enum OperandFieldMap {
 }
 
 fn gen_code(codes: &mut [Box<dyn Encodable>]) -> Vec<u8> {
-    let mut labels: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    let mut labels_parsed: std::collections::HashMap<String, i32> =
+        std::collections::HashMap::new();
     //label parsing pass
     codes.iter().fold(0, |pos, ins| {
         if ins.has_label() {
-            labels.insert(ins.get_label().to_owned(), pos);
+            labels_parsed.insert(ins.get_label().to_owned(), pos);
             pos
         } else {
             pos + ins.len() as i32
@@ -225,18 +223,19 @@ fn gen_code(codes: &mut [Box<dyn Encodable>]) -> Vec<u8> {
             |(mut encoded, pos), code| {
                 let code_len = code.len() as i32;
                 if code.need_reloff_resolving() {
-                    let label = code.resolve_reloff();
-                    match label {
-                        LabelField::Unresolved(Label(name)) => {
-                            *label = LabelField::Resolved(
-                                *labels
-                                    .get(name)
-                                    .unwrap_or_else(|| panic!("Failed to resolve label '{name}'"))
-                                    - pos
-                                    - code_len,
-                            )
+                    let labels = code.resolve_reloff();
+                    for label in labels {
+                        match label {
+                            LabelField::Unresolved(Label(name)) => {
+                                *label = LabelField::Resolved(
+                                    *labels_parsed.get(name).unwrap_or_else(|| {
+                                        panic!("Failed to resolve label '{name}'")
+                                    }) - pos
+                                        - code_len,
+                                )
+                            }
+                            _ => (),
                         }
-                        _ => (),
                     }
                 }
                 encoded.push(code.encode());
@@ -254,7 +253,7 @@ fn code<T: Encodable>(code: T) -> Box<T> {
     Box::new(code)
 }
 
-x86!{Loop,
+x86! {Loop,
     0xE2, Rel8, start:LabelField => Rel8(start)
 }
 
@@ -268,7 +267,7 @@ x86! {Mov,
 x86! {Mov,
     [0xF3, 0x0F, 0x10], SSrr, dst:GPReg, src:GPReg => [ModRM(Reg, *dst, *src)]
     [0xF3, 0x0F, 0x10], SSrm, dst:GPReg, src:GPReg => [ModRM(RegAddr, *dst, *src)]
-    [VEX3b.hex0F.hexF3, 0x10], SSavx, dst:GPReg, src:GPReg => [ModRM(RegAddr,*dst, *src)] 
+    [VEX3b.hex0F.hexF3, 0x10], SSavx, dst:GPReg, src:GPReg => [ModRM(RegAddr,*dst, *src)]
 }
 
 use Mod::*;
@@ -282,7 +281,6 @@ x86!(Adc,
     0x13, RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
     0x11, MR, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op2, *op1)]
 );
-
 
 x86! {
     Add,
@@ -541,7 +539,6 @@ x86! {Int,
     0xCE, Int0Ovf;
     0xF1, Int1Dbg;
 }
-
 
 x86! {MovR64,
     [REX.W, 0x89], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op2, *op1)]

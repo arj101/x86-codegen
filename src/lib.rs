@@ -1,5 +1,6 @@
 use proc_macro::TokenStream;
 
+use std::cell::OnceCell;
 use quote::spanned::Spanned;
 use quote::{format_ident, quote, quote_spanned};
 use std::boxed::Box;
@@ -10,7 +11,7 @@ trait InsField {
     fn parse(input: &ParseBuffer) -> Result<Self>
     where
         Self: Sized;
-    fn setup(&self) -> Option<Result<Stmt>> {
+    fn setup(&self, uid: u8) -> Option<Result<Stmt>> {
         None
     }
     fn byte(&self, nth: u8) -> Result<Expr>;
@@ -102,27 +103,32 @@ impl InsField for SIB {
 
 struct Imm32 {
     val: Expr,
+    uid: OnceCell<u8>
 }
 
 impl InsField for Imm32 {
     fn parse(input: &ParseBuffer) -> Result<Self> {
         Ok(Self {
             val: input.parse()?,
+            uid: OnceCell::new(),
         })
     }
 
-    fn setup(&self) -> Option<Result<Stmt>> {
+    fn setup(&self, uid: u8) -> Option<Result<Stmt>> {
         let val = &self.val;
+        self.uid.set(uid).unwrap();
         let span = val.__span();
+        let ident = format_ident!("imm32_{}", self.uid.get().unwrap());
         let stmt = quote_spanned! {span =>
-            let imm32 = (#val).to_le_bytes();
+            let #ident = (#val).to_le_bytes();
         };
         Some(syn::parse2(stmt))
     }
 
     fn byte(&self, nth: u8) -> Result<Expr> {
         let nth = nth as usize;
-        let expr = quote! { imm32[#nth] };
+        let ident = format_ident!("imm32_{}", self.uid.get().unwrap());
+        let expr = quote! { #ident[#nth] };
         syn::parse2(expr)
     }
 
@@ -131,27 +137,29 @@ impl InsField for Imm32 {
     }
 }
 
-struct Rel32(Expr);
+struct Rel32(Expr, OnceCell<u8>);
 
 impl InsField for Rel32 {
     fn parse(input: &ParseBuffer) -> Result<Self> {
-        Ok(Self(input.parse()?))
+        Ok(Self(input.parse()?, OnceCell::new()))
     }
 
-    fn setup(&self) -> Option<Result<Stmt>> {
+    fn setup(&self, uid: u8) -> Option<Result<Stmt>> {
         let label = &self.0;
+        self.1.set(uid).unwrap();
+        let ident = format_ident!("rel32_{}", self.1.get().unwrap());
         let span = label.__span();
         Some(syn::parse2(quote_spanned! {span =>
-            let rel32 = (#label).off32().to_le_bytes();
+            let #ident = (#label).off32().to_le_bytes();
         }))
     }
 
     fn byte(&self, nth: u8) -> Result<Expr> {
         let span = self.0.__span();
         let nth = nth as usize;
-
+        let ident = format_ident!("rel32_{}", self.1.get().unwrap());
         syn::parse2(quote_spanned! {span =>
-            rel32[#nth]
+            #ident[#nth]
         })
     }
 
@@ -164,26 +172,29 @@ impl InsField for Rel32 {
     }
 }
 
-struct Rel8(Expr);
+struct Rel8(Expr, OnceCell<u8>);
 
 impl InsField for Rel8 {
     fn parse(input: &ParseBuffer) -> Result<Self> {
-        Ok(Self(input.parse()?))
+        Ok(Self(input.parse()?, OnceCell::new()))
     }
 
-    fn setup(&self) -> Option<Result<Stmt>> {
+    fn setup(&self, uid:u8) -> Option<Result<Stmt>> {
         let label = &self.0;
+        self.1.set(uid).unwrap();
+        let ident = format_ident!("rel8_{}", self.1.get().unwrap());
         let span = label.__span();
         Some(syn::parse2(quote_spanned! {span =>
-            let rel8 = (#label).off8().to_le_bytes();
+            let #ident = (#label).off8().to_le_bytes();
         }))
     }
 
     fn byte(&self, _: u8) -> Result<Expr> {
         let span = self.0.__span();
+        let ident = format_ident!("rel8_{}", self.1.get().unwrap());
 
         syn::parse2(quote_spanned! {span =>
-            rel8[0]
+            #ident[0]
         })
     }
 
@@ -197,27 +208,32 @@ impl InsField for Rel8 {
 }
 struct Imm8 {
     val: Expr,
+    uid: OnceCell<u8>
 }
 
 impl InsField for Imm8 {
     fn parse(input: &ParseBuffer) -> Result<Self> {
         Ok(Self {
             val: input.parse()?,
+            uid: OnceCell::new(),
         })
     }
 
-    fn setup(&self) -> Option<Result<Stmt>> {
+    fn setup(&self, uid: u8) -> Option<Result<Stmt>> {
         let val = &self.val;
+        self.uid.set(uid).unwrap();
+        let ident = format_ident!("imm8_{}", self.uid.get().unwrap());
         let span = self.val.__span();
         let stmt = quote_spanned! {span =>
-            let imm8 = (#val).to_le_bytes();
+            let #ident = (#val).to_le_bytes();
         };
         Some(syn::parse2(stmt))
     }
 
     fn byte(&self, _: u8) -> Result<Expr> {
         let span = self.val.__span();
-        let expr = quote_spanned! {span=> imm8[0] };
+        let ident = format_ident!("imm8_{}", self.uid.get().unwrap());
+        let expr = quote_spanned! {span=> #ident[0] };
         syn::parse2(expr)
     }
 
@@ -820,6 +836,8 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
              var_fields,
              ins_fields,
          }| {
+            let mut field_uid = 0u8;
+
             let var_field_names = var_fields.iter().map(|(name, _)| name);
             let var_field_names_1 = var_fields.iter().map(|(name, _)| name);
             let var_field_types = var_fields.iter().map(|(_, ty)| ty);
@@ -827,32 +845,38 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
             let ins_len =
                 prefixes.iter().map(|p| p.len()).sum::<u8>() as u32 + opcodes.len() as u32 + ins_fields.iter().map(|f| f.len()).sum::<u8>() as u32;
             let mut ins_field_setups = vec![];
-            let mut label_field = None;
+            let mut label_fields = vec!();
 
             for field in ins_fields {
-                if let Some(expr) = field.setup() {
+                if let Some(expr) = field.setup(field_uid) {
                     let expr = match expr {
-                        Ok(expr) => expr,
+                        Ok(expr) => {field_uid += 1; expr},
                         Err(e) => return e.into_compile_error(),
                     };
                     ins_field_setups.push(expr)
                 }
                 if let Some(expr) = field.label() {
-                    label_field = Some(match expr {
+                    label_fields.push(match expr {
                         Ok(expr) => expr,
                         Err(e) => return e.into_compile_error(),
                     })
                 }
             }
 
-            let label_field = label_field.map(|label_field| {
-                let span = label_field.__span();
+            let label_fields = if label_fields.len() > 0 { Some(label_fields) } else { None };
+            let label_fields = label_fields.map(|label_fields| {
+                let mut span = label_fields[0].__span();
+
+                for label in &label_fields[1..] {
+                    span = span.join(label.__span()).unwrap();
+                }
+
                 let code = quote_spanned! {span =>
                     fn need_reloff_resolving(&mut self) -> bool { true }
 
-                    fn resolve_reloff(&mut self) -> &mut LabelField {
+                    fn resolve_reloff(&mut self) -> Vec<&mut LabelField> {
                         let Self(#(#var_field_names_1),*) = self;
-                        #label_field
+                        vec!(#(#label_fields),*)
                     }
                 };
                 code
@@ -871,8 +895,16 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
             }
 
             let mut prefix_bytes = vec![];
+            let mut prefix_setups = vec![];
             for field in prefixes {
                 let field_len = field.len();
+
+                if let Some(setup) = field.setup(field_uid) {
+                    match setup {
+                        Ok(setup) => {field_uid += 1; prefix_setups.push(setup)},
+                        Err(e) => return e.into_compile_error(),
+                    }
+                }
 
                 for i in 0..field_len {
                     match field.byte(i) {
@@ -888,12 +920,13 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
                 impl Encodable for #name {
                     fn encode(&self) -> Vec<u8> {
                         let Self(#(#var_field_names),*) = self;
+                        #(#prefix_setups)*
                         #(#ins_field_setups)*
 
                         vec![#(#prefix_bytes,)* #(#opcodes,)* #(#ins_field_bytes),*]
                     }
                     fn len(&self) -> u32 { #ins_len }
-                    #label_field
+                    #label_fields
                 }
             }
         },
