@@ -441,10 +441,7 @@ mod rex {
             let expr_b = self.b.to_expr().map(|expr_b| quote!{ + (#expr_b) });
 
             let expr = quote!{
-                {
-                    const REX: u8 = #const_rex;
-                    REX #expr_w #expr_r #expr_x #expr_b
-                }
+                #const_rex #expr_w #expr_r #expr_x #expr_b
             };
 
             syn::parse2(expr)
@@ -604,10 +601,7 @@ mod vex {
                 let expr_mmmm = self.m_mmmm.to_expr().map(|mmmm| quote!{ + (0b11111 & (#mmmm))});
 
                 syn::parse2(quote!{
-                    {
-                        const VEX3B_B2: u8 = #vex3b_constbyte2;
-                        VEX3B_B2 #expr_r #expr_x #expr_b #expr_mmmm
-                    }
+                    #vex3b_constbyte2 #expr_r #expr_x #expr_b #expr_mmmm
                 })
             } else if nth == 2 {
                 let const_w = self.w.to_const().copied().map(u8::from).unwrap_or(0);
@@ -623,10 +617,7 @@ mod vex {
                 let expr_pp = self.pp.to_expr().map(|pp| quote!{ + (0b11 & (#pp))});
 
                 syn::parse2(quote!{
-                    {
-                        const VEX3B_B3: u8 = #vex3b_constbyte3;
-                        VEX3B_B3 #expr_w #expr_vvvv #expr_l #expr_pp
-                    }
+                    #vex3b_constbyte3 #expr_w #expr_vvvv #expr_l #expr_pp
                 })
             } else {
                 panic!("Tried to access {nth}th byte from 3 byte VEX")
@@ -720,10 +711,7 @@ mod vex {
                 let expr_pp = self.pp.to_expr().map(|pp| quote!{ + (0b11 & (#pp)) });
 
                 syn::parse2(quote!{
-                    {
-                        const VEX2B_B2:u8 = #vex2_constbyte2;
-                        VEX2B_B2 #expr_r #expr_vvvv #expr_l #expr_pp
-                    }
+                    #vex2_constbyte2 #expr_r #expr_vvvv #expr_l #expr_pp
                 })
             } else {
                 panic!("Tried to access byte {nth} from 2 byte VEX")
