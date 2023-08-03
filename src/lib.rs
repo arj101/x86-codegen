@@ -903,7 +903,7 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
             }
 
             quote! {
-                struct #name(#(#var_field_types),*);
+                pub struct #name(#(pub #var_field_types),*);
 
                 impl Encodable for #name {
                     fn encode(&self) -> Vec<u8> {

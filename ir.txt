@@ -1,0 +1,60 @@
+types
+
+constant sized types:
+* float
+
+variable sized types:
+* string
+* array
+
+
+operations
+
+-memory
+-- on float
+DECL_FLOAT identifier value
+SET_FLOAT identifier value
+FREE_FLOAT identifier
+
+
+-- on string
+DECL_ST identifier value 
+
+SET_ST identifier value
+SET_CHR_ST identifier idx character
+
+FREE_ST identifier
+
+-- on array
+DECL_ARR identifier value
+
+SET_ARR identifier value
+SET_IDX_ARR identifier value
+
+FREE_ARR identifier
+
+
+-- operators
+-comparison
+EQ, NEQ, GT, LT, GTE, LTE
+- logical
+AND, OR, XOR
+
+-- control flow
+IF <block-> eflags:cmp> <logical> (...) then <block> [else <block>] //condition expression is any block of code that sets a comparison flag in the eflags register
+WHILE (...) do <block>
+
+
+-- arithmetic
+ADD_FLOAT f1(dest) f2 //adds and stores in f1
+MUL_FLOAT f1(dest) f2 
+DIV_FLOAT f1(dest) f2 // f1/f2
+SQRT_FLOAT dest src
+INV_FLOAT dest src
+INVSQRT_FLOAT dest src
+CMP_FLOAT f1 f2 //sets eflag
+
+-- string operations
+PUSH_ST identifier
+POP_ST identifier
+
