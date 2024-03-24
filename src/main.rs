@@ -41,11 +41,10 @@ unsafe fn code_alloc_inner(code: &[u8]) -> *const () {
         );
     }
 
-
-    //move the code to page aligned memory
+    // move the code to page aligned memory
     std::ptr::copy_nonoverlapping(
         code as *const [u8] as *const u8,
-        allocated.as_ptr() as  *mut u8,
+        allocated.as_ptr() as *mut u8,
         code.len(),
     );
 
@@ -78,42 +77,59 @@ macro_rules! code_vec{
     ($($code:expr),* $(,)?) => { vec![$(std::boxed::Box::new($code)),*] }
 }
 
+use libffi::high::Closure1;
+use std::ffi::CStr;
+
+fn f(i: i32) {
+
+    //     let mut s = String::from("EE");
+    //     println!("{s}");
+    //
+    // std::mem::forget(s);
+    // val2 = 2;
+}
+
 fn main() {
     let mut val2 = 20;
 
-    let mut f = |i: i32| unsafe {
+    let mut f = |i: i32| {
         use std::io::Write;
-        // writeln!(std::io::stdout(), "HI");
-        // let mut s = String::from("EFGGRE");
-        // s.push_str(val2.to_string().as_str());
-        // std::io::stdout().write(i.to_string().as_bytes());
-        // s.push_str(i.to_string().as_str());
-        // std::io::stdout().write(s.as_bytes());
-        libc::printf("Hi %d\n\0".as_ptr() as _, i);
-        val2 = 42;
+        writeln!(std::io::stdout(), "HI");
+        println!("fjdjghdghdgk\n");
     };
 
     let mut code: Vec<Box<dyn Encodable>> = code_vec![
+        PushR(Rbp),
+        Mov64RR(Rbp, Rsp),
         Mov64RR(Rbx, Rdi),
         MovRImm(Ecx, 20),
         MovRImm(Eax, 0),
-        MovSSrr(Xmm0, Xmm1),
+        // MovSSrr(Xmm0, Xmm1),
         Label::new("loop_start"),
         AddRImm(Eax, 0x2),
         PushR(Rax),
         PushR(Rcx),
         Mov64RR(Edi, Ecx),
         IMulReqRxImm(Edi, Edi, 1),
+        MovRImm(Edi, 2),
         CallM(Ebx),
         PopR(Rcx),
         PopR(Rax),
         SubRImm(Ecx, 1),
         CmpRImm(Ecx, 0),
         JmpGENear(LabelField::new("loop_start")),
+        MovRImm(Rax, 2),
+        Mov64RR(Rsp, Rbp),
+        PopR(Rbp),
         Ret(),
     ];
 
-    let code_encoded = gen_code(&mut code);
+    let code_encoded = {
+        let c = gen_code(&mut code);
+        let v = c.clone();
+        drop(code);
+        v
+    };
 
     use termion::color;
     use termion::style;
@@ -133,10 +149,16 @@ fn main() {
         .unwrap();
     println!("{}", color::Fg(color::Reset));
 
-    let fc = ClosureMut1::new(&mut f);
-    let fc = fc.code_ptr();
+    // let fn_mut_ref = &mut f;
+    let fc_ = libffi::high::Closure1::new(&mut f);
+    let fc = fc_.code_ptr();
+
     let fc_ptr: extern "C" fn(i32) -> () = unsafe { std::mem::transmute(fc) };
     let code_fn = code_alloc!(&code_encoded => extern "C" fn(extern "C" fn(i32) -> ()) -> u64);
     let result = code_fn(fc_ptr);
     println!("result = {result}");
+
+    // std::mem::forget(code_encoded);
+    // std::mem::forget(code);
+    // std::mem::forget(fc_);
 }

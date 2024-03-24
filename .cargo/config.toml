@@ -1,0 +1,6 @@
+[rust]
+debug = true
+debuginfo-level = 2
+
+[profile.release]
+debug = true
