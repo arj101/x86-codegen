@@ -117,14 +117,14 @@ extern "C" fn aaa(i: i32)  {
 fn main() {
     let mut val2 = 20;
 
-    let mut f = |i: i32| {
+    let mut f = |i: i32| -> i32 {
         use std::io::Write;
         println!("hi from rust {i}");
-        return i + 5;
+        i + 1
     };
 
     let code: Vec<InsPtr> = code_vec![
-        PushR(Rax),
+        // PushR(Rax),
         PushR(Rbx),
         PushR(Rcx),
         PushR(Rdx),
@@ -134,29 +134,17 @@ fn main() {
         PushR(Rbp),
         Mov64RR(Rbp, Rsp),
 
-        // Mov64RR(Rbx, Rdi),
-        // MovRImm(Ecx, 20),
-        // MovRImm(Eax, 0),
-        // MovSSrr(Xmm0, Xmm1),
-        // Label::new("loop_start"),
-        // AddRImm(Eax, 0x2),
-        // PushR(Rax),
-        // PushR(Rcx),
-        // Mov64RR(Edi, Ecx),
-        // IMulReqRxImm(Edi, Edi, 1),
-        // MovRR(Edi, Rdi),
-        // CallM(Edx),
-        // Mov64RMd8(Edi, Rdi, -4),
-        // PopR(Rcx),
-        // PopR(Rax),
-        // SubRImm(Ecx, 1),
-        // CmpRImm(Ecx, 0),
-        // JmpGENear(LabelField::new("loop_start")),
-        // MovRImm(Rax, 2),
-        // Mov64RR(Rsp, Rbp),
+        Mov64RR(Rbx, Rdi),
         
-        Mov64Md8Imm32(Rbp, 16, 4),
+        Mov64Md8Imm32(Rbp, -4, 1),
 
+        Label::new("loop_start"),
+        Mov64RMd8(Rdi, Rbp, -4),
+        CallM(Rbx),
+        Mov64Md8R(Rbp, -4, Rax),
+
+        CmpRImm(Rax, 10),
+        JmpLENear(LabelField::new("loop_start")),
 
         PopR(Rbp),
 
@@ -165,7 +153,7 @@ fn main() {
         PopR(Rdx),
         PopR(Rcx),
         PopR(Rbx),
-        PopR(Rax),
+        // PopR(Rax),
         Ret(),
     ];
 
@@ -193,11 +181,11 @@ fn main() {
     let fc_ = libffi::high::Closure1::new(&mut f);
     let fc = fc_.code_ptr();
 
-    let fc_ptr: extern "C" fn(i32) -> () = unsafe { std::mem::transmute(fc) };
+    let fc_ptr: extern "C" fn(i32) -> i32 = unsafe { std::mem::transmute(fc) };
     let code_ptr = unsafe { code_alloc_inner(&code_encoded.0) };
     let code_entry_ptr = unsafe { &((*code_ptr.0)[0]) };
     
-    let code_fn: extern "C" fn (extern "C" fn(i32)) -> u64 = unsafe { std::mem::transmute(code_entry_ptr) };
+    let code_fn: extern "C" fn (extern "C" fn(i32) -> i32) -> u64 = unsafe { std::mem::transmute(code_entry_ptr) };
 
     let result = code_fn(fc_ptr);
     // unsafe {
