@@ -166,30 +166,39 @@ enum OperandFieldMap {
     Immediate,
 }
 
-pub fn gen_code(codes: &mut [Box<dyn Encodable>]) -> Vec<u8> {
+
+pub struct GenCode(pub Vec<u8>);
+
+impl Drop for GenCode {
+    fn drop(&mut self) {
+        // println!("Dropped GenCode");
+    }
+}
+
+pub fn gen_code(mut codes: Vec<crate::InsPtr>) -> GenCode {
     let mut labels_parsed: std::collections::HashMap<String, i32> =
         std::collections::HashMap::new();
     //label parsing pass
     codes.iter().fold(0, |pos, ins| {
-        if ins.has_label() {
-            labels_parsed.insert(ins.get_label().to_owned(), pos);
+        if ins.0.has_label() {
+            labels_parsed.insert(ins.0.get_label().to_owned(), pos);
             pos
         } else {
-            pos + ins.len() as i32
+            pos + ins.0.len() as i32
         }
     });
 
     let code_len = codes.len() * 8;
 
     //encoding
-    codes
+    GenCode(codes
         .iter_mut()
         .fold(
             (Vec::with_capacity(code_len), 0),
             |(mut encoded, pos), code| {
-                let code_len = code.len() as i32;
-                if code.need_reloff_resolving() {
-                    let labels = code.resolve_reloff();
+                let code_len = code.0.len() as i32;
+                if code.0.need_reloff_resolving() {
+                    let labels = code.0.resolve_reloff();
                     for label in labels {
                         match label {
                             LabelField::Unresolved(Label(name)) => {
@@ -204,15 +213,15 @@ pub fn gen_code(codes: &mut [Box<dyn Encodable>]) -> Vec<u8> {
                         }
                     }
                 }
-                encoded.push(code.encode());
-                (encoded, pos + code.len() as i32)
+                encoded.push(code.0.encode());
+                (encoded, pos + code.0.len() as i32)
             },
         )
         .0
         .iter()
         .flatten()
         .copied()
-        .collect::<Vec<u8>>()
+        .collect::<Vec<u8>>())
 }
 
 fn code<T: Encodable>(code: T) -> Box<T> {
@@ -510,6 +519,16 @@ x86! {Mov64,
     [REX.W.(B=op1.extended::<u8>()).(R=op2.extended::<u8>()), 0x89], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op2, *op1)]
     [REX.W.(B=op1.extended::<u8>()).(R=op2.extended::<u8>()), 0x89], MR, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op2, *op1)]
     [REX.W.(B=op2.extended::<u8>()).(R=op1.extended::<u8>()), 0x8B], RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
+
+    [REX.W.(B=op2.extended::<u8>()).(R=op1.extended::<u8>()), 0x8B], RMd8, op1:GPReg, op2:GPReg, op3:i8 => [ModRM(RegAddrPlusDisp8, *op1, *op2), Imm8(op3)]
+
+    [REX.W.(B=op2.extended::<u8>()).(R=op1.extended::<u8>()), 0x8B], RMd32, op1:GPReg, op2:GPReg, op3:i32 => [ModRM(RegAddrPlusDisp32, *op1, *op2), Imm32(op3)]
+
+    [REX.W.(B=op1.extended::<u8>()).(R=op3.extended::<u8>()), 0x89], Md8R, op1:GPReg, op2:i8, op3:GPReg => [ModRM(RegAddrPlusDisp8, *op3, *op1), Imm8(op2)]
+    [REX.W.(B=op1.extended::<u8>()).(R=op3.extended::<u8>()), 0x89], Md32R, op1:GPReg, op2:i32, op3:GPReg => [ModRM(RegAddrPlusDisp32, *op3, *op1), Imm32(op2)]
+
+    [REX.W.(B=op1.extended::<u8>()), 0xC7], Md8Imm32, op1:GPReg, op2: i32, op3: i32 => [ModRM(RegAddrPlusDisp8, 0, *op1), Imm8(op2), Imm32(op3)]
 }
+
 
 
