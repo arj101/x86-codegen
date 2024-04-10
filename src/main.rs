@@ -20,7 +20,7 @@ impl Drop for CodePtr {
     }
 }
 
-unsafe fn code_alloc_inner(code: &[u8]) -> CodePtr {
+unsafe fn code_alloc_inner(code: &[u8]) ->  *const () {
     let alloc_size = code.len().max(4096);
 
     const PAGE_SIZE: usize = 4096;
@@ -59,12 +59,12 @@ unsafe fn code_alloc_inner(code: &[u8]) -> CodePtr {
         code.len(),
     );
  
-    CodePtr(std::ptr::slice_from_raw_parts_mut(allocated.as_ptr() as *mut u8, code.len()))
+    allocated.as_ptr() as *const ()
 }
 
 macro_rules! code_alloc {
     ($code:expr => $type:ty) => {
-        unsafe { std::mem::transmute::<*mut u8, $type>((*code_alloc_inner($code)).as_mut_ptr()) }
+        unsafe { std::mem::transmute::<*const (), $type>((code_alloc_inner($code))) }
     };
 
     ($code:expr) => {
@@ -108,20 +108,27 @@ impl Drop for InsPtr {
     }
 }
 
-extern "C" fn aaa(i: i32)  {
-        use std::io::Write;
-        write!(std::io::stdout(), "HI");
-}
 
 
 fn main() {
     let mut val2 = 20;
 
     let mut f = |i: i32| -> i32 {
-        use std::io::Write;
         println!("hi from rust {i}");
         i + 1
     };
+
+    macro_rules! new_label {
+        ($e:expr) => {
+            Label::new($e)
+        };
+    }
+
+    macro_rules! label {
+        ($e:expr) => {
+            LabelField::new($e)
+        };
+    }
 
     let code: Vec<InsPtr> = code_vec![
         // PushR(Rax),
@@ -135,16 +142,24 @@ fn main() {
         Mov64RR(Rbp, Rsp),
 
         Mov64RR(Rbx, Rdi),
+
+        Mov64RImm64(Rax, 2842428494384442892), 
+        Mov64Md8R(Rbp, -2, Rax),
         
         Mov64Md8Imm32(Rbp, -4, 1),
 
-        Label::new("loop_start"),
+        new_label!("loop_start"),
         Mov64RMd8(Rdi, Rbp, -4),
         CallM(Rbx),
         Mov64Md8R(Rbp, -4, Rax),
 
+
+
+
         CmpRImm(Rax, 10),
-        JmpLENear(LabelField::new("loop_start")),
+        JmpLENear(label!("loop_start")),
+
+        Mov64RImm64(Rax, 2484),
 
         PopR(Rbp),
 
@@ -182,10 +197,11 @@ fn main() {
     let fc = fc_.code_ptr();
 
     let fc_ptr: extern "C" fn(i32) -> i32 = unsafe { std::mem::transmute(fc) };
-    let code_ptr = unsafe { code_alloc_inner(&code_encoded.0) };
-    let code_entry_ptr = unsafe { &((*code_ptr.0)[0]) };
+    // let code_ptr = unsafe { code_alloc_inner(&code_encoded.0) };
+    // let code_entry_ptr = unsafe { &((*code_ptr.0)[0]) };
     
-    let code_fn: extern "C" fn (extern "C" fn(i32) -> i32) -> u64 = unsafe { std::mem::transmute(code_entry_ptr) };
+    // let code_fn: extern "C" fn (extern "C" fn(i32) -> i32) -> u64 = unsafe { std::mem::transmute(code_entry_ptr) };
+    let code_fn = code_alloc!(&code_encoded.0 => extern "C" fn (extern "C" fn (i32) -> i32) -> i64);
 
     let result = code_fn(fc_ptr);
     // unsafe {

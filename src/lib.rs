@@ -137,6 +137,42 @@ impl InsField for Imm32 {
     }
 }
 
+struct Imm64 {
+    val: Expr,
+    uid: OnceCell<u8>
+}
+
+impl InsField for Imm64 {
+    fn parse(input: &ParseBuffer) -> Result<Self> {
+        Ok(Self {
+            val: input.parse()?,
+            uid: OnceCell::new(),
+        })
+    }
+
+    fn setup(&self, uid: u8) -> Option<Result<Stmt>> {
+        let val = &self.val;
+        self.uid.set(uid).unwrap();
+        let span = val.__span();
+        let ident = format_ident!("imm64_{}", self.uid.get().unwrap());
+        let stmt = quote_spanned! {span =>
+            let #ident = (#val).to_le_bytes();
+        };
+        Some(syn::parse2(stmt))
+    }
+
+    fn byte(&self, nth: u8) -> Result<Expr> {
+        let nth = nth as usize;
+        let ident = format_ident!("imm64_{}", self.uid.get().unwrap());
+        let expr = quote! { #ident[#nth] };
+        syn::parse2(expr)
+    }
+
+    fn len(&self) -> u8 {
+        8
+    }
+}
+
 struct Rel32(Expr, OnceCell<u8>);
 
 impl InsField for Rel32 {
@@ -269,6 +305,7 @@ mod keyword {
     syn::custom_keyword!(SIB);
     syn::custom_keyword!(Imm8);
     syn::custom_keyword!(Imm32);
+    syn::custom_keyword!(Imm64);
     syn::custom_keyword!(Label);
     syn::custom_keyword!(Rel32);
     syn::custom_keyword!(Rel8);
@@ -303,7 +340,7 @@ fn parse_ins_field(input: &ParseBuffer) -> Result<Box<dyn InsField>> {
         }
     }
 
-    parse_ins_field![ModRM, SIB, Imm32, Imm8, Rel32, Rel8]
+    parse_ins_field![ModRM, SIB, Imm32, Imm64, Imm8, Rel32, Rel8]
 }
 
 fn parse_ins_fields(input: &ParseBuffer) -> Result<Vec<Box<dyn InsField>>> {

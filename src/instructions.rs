@@ -528,6 +528,7 @@ x86! {Mov64,
     [REX.W.(B=op1.extended::<u8>()).(R=op3.extended::<u8>()), 0x89], Md32R, op1:GPReg, op2:i32, op3:GPReg => [ModRM(RegAddrPlusDisp32, *op3, *op1), Imm32(op2)]
 
     [REX.W.(B=op1.extended::<u8>()), 0xC7], Md8Imm32, op1:GPReg, op2: i32, op3: i32 => [ModRM(RegAddrPlusDisp8, 0, *op1), Imm8(op2), Imm32(op3)]
+    [REX.W.(B=op1.extended::<u8>()), 0xB8+u8::from(*op1)], RImm64, op1:GPReg, op2: i64 => [Imm64(op2)]
 }
 
 
