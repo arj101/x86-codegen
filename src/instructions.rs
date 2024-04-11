@@ -617,15 +617,25 @@ impl Label {
 //     fn len(&self) -> u32 {
 //         self.encode().len() as u32
 //     }
-// }
+// }ins
 //
+//
+impl Encodable2 for Vec<u8> {
+    fn encode(&self, buf: &mut CodeBuffer) {
+        buf.write(self);
+    }
+    fn len(&self) -> u32 {
+        std::mem::size_of_val(self) as u32
+    }
+}
 
 pub struct AlignmentPadding(pub u32);
 
 
 impl Encodable2 for AlignmentPadding {
     fn encode(&self, buf: &mut CodeBuffer) {
-        let padding_needed = buf.pos % self.0 as usize;
+        let mut padding_needed = buf.pos % self.0 as usize;
+        if padding_needed > 0 { padding_needed = self.0 as usize - padding_needed };
 
         for _ in 0..padding_needed {
             buf.write(&[0]);
@@ -637,7 +647,9 @@ impl Encodable2 for AlignmentPadding {
     }
 
     fn dynamic_length(&self, pos: usize) -> u32 {
-        (pos % self.0 as usize) as u32
+        let mut padding_needed = pos % self.0 as usize;
+        if padding_needed > 0 { padding_needed = self.0 as usize - padding_needed };
+        padding_needed as u32
     }
 
     fn len(&self) -> u32 {
@@ -674,10 +686,15 @@ x86! {Mov64,
 
     [REX.W.(B=op2.extended::<u8>()).(R=op1.extended::<u8>()), 0x8B], RMd32, op1:GPReg, op2:GPReg, op3:i32 => [ModRM(RegAddrPlusDisp32, *op1, *op2), Imm32(op3)]
 
+    [REX.W.(B=op2.extended::<u8>()).(R=op2.extended::<u8>()), 0x8B], RMrel32,  op2:GPReg, op3:LabelField => [ModRM(RegAddr, *op2, GPReg::Rbp), Rel32(op3)]
+
+
     [REX.W.(B=op1.extended::<u8>()).(R=op3.extended::<u8>()), 0x89], Md8R, op1:GPReg, op2:i8, op3:GPReg => [ModRM(RegAddrPlusDisp8, *op3, *op1), Imm8(op2)]
+
     [REX.W.(B=op1.extended::<u8>()).(R=op3.extended::<u8>()), 0x89], Md32R, op1:GPReg, op2:i32, op3:GPReg => [ModRM(RegAddrPlusDisp32, *op3, *op1), Imm32(op2)]
 
     [REX.W.(B=op1.extended::<u8>()), 0xC7], Md8Imm32, op1:GPReg, op2: i32, op3: i32 => [ModRM(RegAddrPlusDisp8, 0, *op1), Imm8(op2), Imm32(op3)]
+
     [REX.W.(B=op1.extended::<u8>()), 0xB8+u8::from(*op1)], RImm64, op1:GPReg, op2: i64 => [Imm64(op2)]
 }
 

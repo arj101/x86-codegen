@@ -936,12 +936,12 @@ impl Parse for Asm {
             if input.parse::<Token![$]>().is_ok() {
                 if input.parse::<Token![$]>().is_ok() {
                     inss.push(AsmType::LabelExpr(input.parse::<Expr>()?));
-                } else if input.parse::<Token![@]>().is_ok() {
-                    inss.push(AsmType::RawExpr(input.parse::<Expr>()?));
-                    input.parse::<Token![@]>()?;
                 } else {
                     inss.push(AsmType::Label(input.parse::<Ident>()?));
                 }
+            } else if input.parse::<Token![@]>().is_ok() {
+                inss.push(AsmType::RawExpr(input.parse::<Expr>()?));
+                input.parse::<Token![@]>()?;
             } else {
                 let ins = input.parse::<Ident>()?;
                 let mut fields = vec![];

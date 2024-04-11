@@ -252,6 +252,7 @@ fn main() {
         Mov64Md8Imm32 Rbp -4 1;
 
         $loop_start
+
         Mov64RMd8 Rdi Rbp -4;
         CallM Rbx;
         Mov64Md8R Rbp -4 Rax;
@@ -261,7 +262,9 @@ fn main() {
 
         // MovssRM Xmm1 Rax;
 
-        Mov64RImm64 Rax 2484;
+        Mov64RImm64 Rax 2;
+
+        Mov64RMrel32 Rax $num; //return the value stores in memory address num
 
         PopR Rbp;
         PopR Rdi;
@@ -271,11 +274,16 @@ fn main() {
         PopR Rbx;
         // PopR(Rax),
         Ret;
-        $@
-           AlignmentPadding(16)
+
         @
-        $@
-           [3u8].as_slice()
+           AlignmentPadding(4)
+           //Adds padding so that the next byte is aligned as per the 
+           //given alginemnt
+        @
+
+        $num
+        @
+          91169420i32.to_le_bytes().to_vec()
         @
     ];
 
