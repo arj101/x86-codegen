@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::x86;
 
 #[rustfmt::skip]
@@ -53,16 +55,12 @@ impl GPReg {
     pub fn extended<T: From<bool>>(&self) -> T {
         use GPReg::*;
         match self {
-            R8b | R8w | R8d | R8 |
-            R9b | R9w | R9d | R9 |
-            R10b | R10w | R10d | R10 |
-            R11b | R11w | R11d | R11 |
-            R12b | R12w | R12d | R12 |
-            R13b | R13w | R13d | R13 |
-            R14b | R14w | R14d | R14 |
-            R15b | R15w | R15d | R15 => true,
+            R8b | R8w | R8d | R8 | R9b | R9w | R9d | R9 | R10b | R10w | R10d | R10 | R11b
+            | R11w | R11d | R11 | R12b | R12w | R12d | R12 | R13b | R13w | R13d | R13 | R14b
+            | R14w | R14d | R14 | R15b | R15w | R15d | R15 => true,
             _ => false,
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -143,6 +141,52 @@ pub trait Encodable {
     }
 }
 
+pub struct CodeBuffer {
+    code: Vec<u8>,
+}
+
+impl CodeBuffer {
+    pub fn new() -> Self {
+        Self { code: vec![] }
+    }
+    pub fn with_initial_size(size: usize) -> Self {
+        Self {
+            code: Vec::with_capacity(size),
+        }
+    }
+}
+
+impl Write for CodeBuffer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.code.extend(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+pub trait Encodable2 {
+    fn encode(&self, code_buf: &mut CodeBuffer);
+    fn len(&self) -> u32;
+
+    fn has_label(&self) -> bool {
+        false
+    }
+    fn get_label(&self) -> &str {
+        unimplemented!("A labeled instructions must implement get_label() function");
+    }
+
+    fn need_reloff_resolving(&mut self) -> bool {
+        false
+    }
+    fn resolve_reloff(&mut self) -> Vec<&mut LabelField> {
+        unimplemented!(
+            "An instruction that needs a relative offset must implement resolve_reloff() function"
+        )
+    }
+}
+
 struct ModRMImm {
     mod_val: Mod,
     reg: GPReg,
@@ -165,7 +209,6 @@ enum OperandFieldMap {
     ModRMDisp,
     Immediate,
 }
-
 
 pub struct GenCode(pub Vec<u8>);
 
@@ -190,38 +233,66 @@ pub fn gen_code(mut codes: Vec<crate::InsPtr>) -> GenCode {
 
     let code_len = codes.len() * 8;
 
-    //encoding
-    GenCode(codes
-        .iter_mut()
-        .fold(
-            (Vec::with_capacity(code_len), 0),
-            |(mut encoded, pos), code| {
-                let code_len = code.0.len() as i32;
-                if code.0.need_reloff_resolving() {
-                    let labels = code.0.resolve_reloff();
-                    for label in labels {
-                        match label {
-                            LabelField::Unresolved(Label(name)) => {
-                                *label = LabelField::Resolved(
-                                    *labels_parsed.get(name).unwrap_or_else(|| {
-                                        panic!("Failed to resolve label '{name}'")
-                                    }) - pos
-                                        - code_len,
-                                )
-                            }
-                            _ => (),
-                        }
+    let mut code_buffer = CodeBuffer::new();
+
+
+    let mut pos = 0;
+    for code in &mut codes {
+        let code_len = code.0.len() as i32;
+        if code.0.need_reloff_resolving() {
+            let labels = code.0.resolve_reloff();
+            for label in labels {
+                match label {
+                    LabelField::Unresolved(Label(name)) => {
+                        *label = LabelField::Resolved(
+                            *labels_parsed
+                                .get(name)
+                                .unwrap_or_else(|| panic!("Failed to resolve label '{name}'"))
+                                - pos
+                                - code_len,
+                        )
                     }
+                    _ => (),
                 }
-                encoded.push(code.0.encode());
-                (encoded, pos + code.0.len() as i32)
-            },
-        )
-        .0
-        .iter()
-        .flatten()
-        .copied()
-        .collect::<Vec<u8>>())
+            }
+        }
+        code.0.encode(&mut code_buffer);
+        pos += code.0.len() as i32;
+    }
+
+    //encoding
+    // GenCode(codes
+    //     .iter_mut()
+    //     .fold(
+    //         (Vec::with_capacity(code_len), 0),
+    //         |(mut encoded, pos), code| {
+    //             let code_len = code.0.len() as i32;
+    //             if code.0.need_reloff_resolving() {
+    //                 let labels = code.0.resolve_reloff();
+    //                 for label in labels {
+    //                     match label {
+    //                         LabelField::Unresolved(Label(name)) => {
+    //                             *label = LabelField::Resolved(
+    //                                 *labels_parsed.get(name).unwrap_or_else(|| {
+    //                                     panic!("Failed to resolve label '{name}'")
+    //                                 }) - pos
+    //                                     - code_len,
+    //                             )
+    //                         }
+    //                         _ => (),
+    //                     }
+    //                 }
+    //             }
+    //             encoded.push(code.0.encode());
+    //             (encoded, pos + code.0.len() as i32)
+    //         },
+    //     )
+    //     .0
+    //     .iter()
+    //     .flatten()
+    //     .copied()
+    //     .collect::<Vec<u8>>())
+    GenCode(code_buffer.code)
 }
 
 fn code<T: Encodable>(code: T) -> Box<T> {
@@ -493,10 +564,23 @@ impl Label {
     }
 }
 
-impl Encodable for Label {
-    fn encode(&self) -> Vec<u8> {
-        vec![]
-    }
+// impl Encodable for Label {
+//     fn encode(&self) -> Vec<u8> {
+//         vec![]
+//     }
+//     fn has_label(&self) -> bool {
+//         true
+//     }
+//     fn get_label(&self) -> &str {
+//         &self.0
+//     }
+//     fn len(&self) -> u32 {
+//         self.encode().len() as u32
+//     }
+// }
+
+impl Encodable2 for Label {
+    fn encode(&self, buf: &mut CodeBuffer) {}
     fn has_label(&self) -> bool {
         true
     }
@@ -504,7 +588,7 @@ impl Encodable for Label {
         &self.0
     }
     fn len(&self) -> u32 {
-        self.encode().len() as u32
+        0
     }
 }
 
@@ -530,6 +614,3 @@ x86! {Mov64,
     [REX.W.(B=op1.extended::<u8>()), 0xC7], Md8Imm32, op1:GPReg, op2: i32, op3: i32 => [ModRM(RegAddrPlusDisp8, 0, *op1), Imm8(op2), Imm32(op3)]
     [REX.W.(B=op1.extended::<u8>()), 0xB8+u8::from(*op1)], RImm64, op1:GPReg, op2: i64 => [Imm64(op2)]
 }
-
-
-

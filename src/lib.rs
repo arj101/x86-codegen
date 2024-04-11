@@ -1,10 +1,11 @@
-use proc_macro::TokenStream;
+use proc_macro::{TokenStream, TokenTree};
 
-use std::cell::OnceCell;
 use quote::spanned::Spanned;
-use quote::{format_ident, quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use std::boxed::Box;
-use syn::parse::{Parse, ParseBuffer, ParseStream, Result};
+use std::cell::OnceCell;
+use syn::parse::{Parse, ParseBuffer, ParseStream, Parser, Result};
+use syn::token::Token;
 use syn::{bracketed, parse_macro_input, Expr, Ident, Stmt, Token, Type};
 
 trait InsField {
@@ -63,7 +64,6 @@ impl InsField for ModRM {
     }
 }
 
-
 struct SIB {
     scale: Expr,
     index: Expr,
@@ -103,7 +103,7 @@ impl InsField for SIB {
 
 struct Imm32 {
     val: Expr,
-    uid: OnceCell<u8>
+    uid: OnceCell<u8>,
 }
 
 impl InsField for Imm32 {
@@ -139,7 +139,7 @@ impl InsField for Imm32 {
 
 struct Imm64 {
     val: Expr,
-    uid: OnceCell<u8>
+    uid: OnceCell<u8>,
 }
 
 impl InsField for Imm64 {
@@ -215,7 +215,7 @@ impl InsField for Rel8 {
         Ok(Self(input.parse()?, OnceCell::new()))
     }
 
-    fn setup(&self, uid:u8) -> Option<Result<Stmt>> {
+    fn setup(&self, uid: u8) -> Option<Result<Stmt>> {
         let label = &self.0;
         self.1.set(uid).unwrap();
         let ident = format_ident!("rel8_{}", self.1.get().unwrap());
@@ -244,7 +244,7 @@ impl InsField for Rel8 {
 }
 struct Imm8 {
     val: Expr,
-    uid: OnceCell<u8>
+    uid: OnceCell<u8>,
 }
 
 impl InsField for Imm8 {
@@ -470,14 +470,15 @@ mod rex {
             let const_x = self.r.to_const().map(|v| u8::from(*v)).unwrap_or(0);
             let const_b = self.x.to_const().map(|v| u8::from(*v)).unwrap_or(0);
 
-            let const_rex = (0b0100 << 4) + (const_w << 3) + (const_r << 2) + (const_x << 1) + const_b;
+            let const_rex =
+                (0b0100 << 4) + (const_w << 3) + (const_r << 2) + (const_x << 1) + const_b;
 
-            let expr_w = self.w.to_expr().map(|expr_w| quote!{ + ((#expr_w) << 3) });
-            let expr_r = self.r.to_expr().map(|expr_r| quote!{ + ((#expr_r) << 2) });
-            let expr_x = self.x.to_expr().map(|expr_x| quote!{ + ((#expr_x) << 1) });
-            let expr_b = self.b.to_expr().map(|expr_b| quote!{ + (#expr_b) });
+            let expr_w = self.w.to_expr().map(|expr_w| quote! { + ((#expr_w) << 3) });
+            let expr_r = self.r.to_expr().map(|expr_r| quote! { + ((#expr_r) << 2) });
+            let expr_x = self.x.to_expr().map(|expr_x| quote! { + ((#expr_x) << 1) });
+            let expr_b = self.b.to_expr().map(|expr_b| quote! { + (#expr_b) });
 
-            let expr = quote!{
+            let expr = quote! {
                 #const_rex #expr_w #expr_r #expr_x #expr_b
             };
 
@@ -606,16 +607,15 @@ mod vex {
                         content.parse::<Token![=]>()?;
                         vex3b.w = Expr(content.parse()?);
                     } else {
-                        return Err(input.error("Unknown VEX (3 byte) field"))
+                        return Err(input.error("Unknown VEX (3 byte) field"));
                     }
                 } else {
-                    return Err(input.error("Unexpected VEX (3 byte) field"))
+                    return Err(input.error("Unexpected VEX (3 byte) field"));
                 }
-
             }
 
             if let Const(0) = vex3b.m_mmmm {
-                return Err(input.error("VEX.m_mmmm field must be initialised"))
+                return Err(input.error("VEX.m_mmmm field must be initialised"));
             }
 
             Ok(vex3b)
@@ -623,21 +623,34 @@ mod vex {
 
         fn byte(&self, nth: u8) -> Result<syn::Expr> {
             if nth == 0 {
-                syn::parse2(quote!{0b11000100})
+                syn::parse2(quote! {0b11000100})
             } else if nth == 1 {
                 let const_r = self.r.to_const().copied().map(u8::from).unwrap_or(0);
                 let const_x = self.x.to_const().copied().map(u8::from).unwrap_or(0);
                 let const_b = self.b.to_const().copied().map(u8::from).unwrap_or(0);
                 let const_mmmm = self.m_mmmm.to_const().copied().map(u8::from).unwrap_or(0);
 
-                let vex3b_constbyte2 = (const_r << 7) + (const_x << 6) + (const_b << 5) + const_mmmm;
+                let vex3b_constbyte2 =
+                    (const_r << 7) + (const_x << 6) + (const_b << 5) + const_mmmm;
 
-                let expr_r = self.r.to_expr().map(|r| quote!{ + ((0b1 << 7) & ((#r) << 7))});
-                let expr_x = self.x.to_expr().map(|x| quote!{ + ((0b1 << 6) & ((#x) << 6))});
-                let expr_b = self.b.to_expr().map(|b| quote!{ + ((0b1 << 5) & ((#b) << 5))});
-                let expr_mmmm = self.m_mmmm.to_expr().map(|mmmm| quote!{ + (0b11111 & (#mmmm))});
+                let expr_r = self
+                    .r
+                    .to_expr()
+                    .map(|r| quote! { + ((0b1 << 7) & ((#r) << 7))});
+                let expr_x = self
+                    .x
+                    .to_expr()
+                    .map(|x| quote! { + ((0b1 << 6) & ((#x) << 6))});
+                let expr_b = self
+                    .b
+                    .to_expr()
+                    .map(|b| quote! { + ((0b1 << 5) & ((#b) << 5))});
+                let expr_mmmm = self
+                    .m_mmmm
+                    .to_expr()
+                    .map(|mmmm| quote! { + (0b11111 & (#mmmm))});
 
-                syn::parse2(quote!{
+                syn::parse2(quote! {
                     #vex3b_constbyte2 #expr_r #expr_x #expr_b #expr_mmmm
                 })
             } else if nth == 2 {
@@ -646,14 +659,18 @@ mod vex {
                 let const_l = self.l.to_const().copied().map(u8::from).unwrap_or(0);
                 let const_pp = self.pp.to_const().copied().map(u8::from).unwrap_or(0);
 
-                let vex3b_constbyte3 = (const_w << 7) + (const_vvvv << 3) + (const_l << 2) + const_pp;
+                let vex3b_constbyte3 =
+                    (const_w << 7) + (const_vvvv << 3) + (const_l << 2) + const_pp;
 
-                let expr_w = self.w.to_expr().map(|w| quote!{ + ((#w) << 7)});
-                let expr_vvvv = self.vvvv.to_expr().map(|vvvv| quote!{ + (0b111000 & ((#vvvv) << 3))});
-                let expr_l = self.l.to_expr().map(|l| quote!{ + (0b100 & ((#l) << 2))});
-                let expr_pp = self.pp.to_expr().map(|pp| quote!{ + (0b11 & (#pp))});
+                let expr_w = self.w.to_expr().map(|w| quote! { + ((#w) << 7)});
+                let expr_vvvv = self
+                    .vvvv
+                    .to_expr()
+                    .map(|vvvv| quote! { + (0b111000 & ((#vvvv) << 3))});
+                let expr_l = self.l.to_expr().map(|l| quote! { + (0b100 & ((#l) << 2))});
+                let expr_pp = self.pp.to_expr().map(|pp| quote! { + (0b11 & (#pp))});
 
-                syn::parse2(quote!{
+                syn::parse2(quote! {
                     #vex3b_constbyte3 #expr_w #expr_vvvv #expr_l #expr_pp
                 })
             } else {
@@ -661,7 +678,9 @@ mod vex {
             }
         }
 
-        fn len(&self) -> u8 { 3 }
+        fn len(&self) -> u8 {
+            3
+        }
     }
 
     pub struct Vex2b {
@@ -719,12 +738,11 @@ mod vex {
                     } else if content.parse::<X>().is_ok() {
                         content.parse::<Token![=]>()?;
                     } else {
-                        return Err(input.error("Unknown VEX (2 byte) field"))
+                        return Err(input.error("Unknown VEX (2 byte) field"));
                     }
                 } else {
-                    return Err(input.error("Unexpected VEX (2 byte) field"))
+                    return Err(input.error("Unexpected VEX (2 byte) field"));
                 }
-
             }
 
             Ok(vex2b)
@@ -732,22 +750,31 @@ mod vex {
 
         fn byte(&self, nth: u8) -> Result<syn::Expr> {
             if nth == 0 {
-                syn::parse2(quote!{0b11000101})
+                syn::parse2(quote! {0b11000101})
             } else if nth == 1 {
                 let const_r = self.r.to_const().copied().map(u8::from).unwrap_or(0);
                 let const_vvvv = self.vvvv.to_const().copied().map(u8::from).unwrap_or(0);
                 let const_l = self.l.to_const().copied().map(u8::from).unwrap_or(0);
                 let const_pp = self.pp.to_const().copied().map(u8::from).unwrap_or(0);
 
-                let vex2_constbyte2 = (const_r << 7) + (const_vvvv << 3) + (const_l << 2) + const_pp;
+                let vex2_constbyte2 =
+                    (const_r << 7) + (const_vvvv << 3) + (const_l << 2) + const_pp;
 
-                let expr_r = self.r.to_expr().map(|r| quote!{+ ((0b1 << 7) & ((#r) << 7))});
-                let expr_vvvv = self.vvvv.to_expr().map(|vvvv| quote!{ + ((0b1111 << 3) & ((#vvvv) << 7)) });
-                let expr_l = self.l.to_expr().map(|l| quote!{ + ((0b1 << 2) + 
-                ((#l) << 2))});
-                let expr_pp = self.pp.to_expr().map(|pp| quote!{ + (0b11 & (#pp)) });
+                let expr_r = self
+                    .r
+                    .to_expr()
+                    .map(|r| quote! {+ ((0b1 << 7) & ((#r) << 7))});
+                let expr_vvvv = self
+                    .vvvv
+                    .to_expr()
+                    .map(|vvvv| quote! { + ((0b1111 << 3) & ((#vvvv) << 7)) });
+                let expr_l = self.l.to_expr().map(|l| {
+                    quote! { + ((0b1 << 2) +
+                    ((#l) << 2))}
+                });
+                let expr_pp = self.pp.to_expr().map(|pp| quote! { + (0b11 & (#pp)) });
 
-                syn::parse2(quote!{
+                syn::parse2(quote! {
                     #vex2_constbyte2 #expr_r #expr_vvvv #expr_l #expr_pp
                 })
             } else {
@@ -755,13 +782,15 @@ mod vex {
             }
         }
 
-        fn len(&self) -> u8 { 2 }
+        fn len(&self) -> u8 {
+            2
+        }
     }
 }
 
 fn parse_prefixes(input: &ParseBuffer) -> Result<Vec<Box<dyn InsField>>> {
-    let mut prefixes: Vec<Box<dyn InsField>> = vec!();
-    
+    let mut prefixes: Vec<Box<dyn InsField>> = vec![];
+
     while input.peek(Ident) {
         if input.parse::<keyword::REX>().is_ok() {
             prefixes.push(Box::new(rex::Rex::parse(input)?))
@@ -770,7 +799,7 @@ fn parse_prefixes(input: &ParseBuffer) -> Result<Vec<Box<dyn InsField>>> {
         } else if input.parse::<keyword::VEX3b>().is_ok() {
             prefixes.push(Box::new(vex::Vex3b::parse(input)?))
         } else {
-            return Err(input.error("Unknown prefix"))
+            return Err(input.error("Unknown prefix"));
         }
     }
     Ok(prefixes)
@@ -849,6 +878,109 @@ impl Parse for Instructions {
     }
 }
 
+enum FieldType {
+    Label(Ident),
+    Ident(Ident),
+    LabelExpr(Expr),
+    Expr(Expr),
+}
+
+impl ToTokens for FieldType {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        match self {
+            FieldType::Ident(ident) => ident.to_tokens(tokens),
+            FieldType::Expr(expr) => expr.to_tokens(tokens),
+            FieldType::LabelExpr(expr) => tokens.extend(quote! {LabelField::new(#expr)}),
+            FieldType::Label(ident) => {
+                let ident = proc_macro2::Literal::string(&ident.to_string());
+                let tks = quote! {
+                    LabelField::new(#ident)
+                };
+                tokens.extend(tks);
+            }
+        }
+    }
+}
+
+enum AsmType {
+    Ins(Ident, Vec<FieldType>),
+    Label(Ident),
+    LabelExpr(Expr),
+}
+
+use proc_macro2::TokenStream as TokenStream2;
+struct Asm {
+    inss: Vec<AsmType>,
+}
+
+impl ToTokens for AsmType {
+    fn to_tokens(&self, tokens: &mut TokenStream2) {
+        match self {
+            AsmType::Ins(ident, fields) => tokens.extend(quote! {#ident(#(#fields),*)}),
+            AsmType::LabelExpr(expr) => tokens.extend(quote! { Label::new(#expr) }),
+            AsmType::Label(ident) => {
+                let ident = proc_macro2::Literal::string(&ident.to_string());
+                tokens.extend(quote! {Label::new(#ident)});
+            }
+        }
+    }
+}
+
+impl Parse for Asm {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let mut inss = vec![];
+
+        while !input.is_empty() {
+            if input.parse::<Token![$]>().is_ok() {
+                if input.parse::<Token![$]>().is_ok() {
+                    inss.push(AsmType::LabelExpr(input.parse::<Expr>()?));
+                } else {
+                    inss.push(AsmType::Label(input.parse::<Ident>()?));
+                }
+            } else {
+                let ins = input.parse::<Ident>()?;
+                let mut fields = vec![];
+
+                while input.parse::<Token![;]>().is_err() {
+                    // if input.parse::<Token![$]>().is_ok() {
+                    if input.parse::<Token![$]>().is_ok() {
+                        if input.parse::<Token![$]>().is_ok() {
+                            fields.push(FieldType::LabelExpr(input.parse::<Expr>()?));
+                        } else {
+                            fields.push(FieldType::Label(input.parse::<Ident>()?));
+                        }
+                    } else if input.peek(Ident) {
+                        fields.push(FieldType::Ident(input.parse::<Ident>()?));
+                    } else {
+                        fields.push(FieldType::Expr(input.parse::<Expr>()?));
+                    }
+                }
+                inss.push(AsmType::Ins(ins, fields));
+            }
+        }
+
+        Ok(Asm { inss })
+    }
+}
+
+#[proc_macro]
+pub fn pretty_code_vec(tokens: TokenStream) -> TokenStream {
+    let asm = parse_macro_input!(tokens as Asm);
+
+    let ins_codes = asm.inss.iter().map(|ins_or_label| {
+        quote! {
+            #ins_or_label
+        }
+    });
+
+    quote! {
+        vec![
+        #(InsPtr(std::boxed::Box::new(#ins_codes))),*
+        ]
+    }
+    .into()
+}
+
 #[proc_macro]
 pub fn x86(tokens: TokenStream) -> TokenStream {
     let instructions = parse_macro_input!(tokens as Instructions);
@@ -867,15 +999,19 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
             let var_field_names_1 = var_fields.iter().map(|(name, _)| name);
             let var_field_types = var_fields.iter().map(|(_, ty)| ty);
 
-            let ins_len =
-                prefixes.iter().map(|p| p.len()).sum::<u8>() as u32 + opcodes.len() as u32 + ins_fields.iter().map(|f| f.len()).sum::<u8>() as u32;
+            let ins_len = prefixes.iter().map(|p| p.len()).sum::<u8>() as u32
+                + opcodes.len() as u32
+                + ins_fields.iter().map(|f| f.len()).sum::<u8>() as u32;
             let mut ins_field_setups = vec![];
-            let mut label_fields = vec!();
+            let mut label_fields = vec![];
 
             for field in ins_fields {
                 if let Some(expr) = field.setup(field_uid) {
                     let expr = match expr {
-                        Ok(expr) => {field_uid += 1; expr},
+                        Ok(expr) => {
+                            field_uid += 1;
+                            expr
+                        }
                         Err(e) => return e.into_compile_error(),
                     };
                     ins_field_setups.push(expr)
@@ -888,7 +1024,11 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
                 }
             }
 
-            let label_fields = if label_fields.len() > 0 { Some(label_fields) } else { None };
+            let label_fields = if label_fields.len() > 0 {
+                Some(label_fields)
+            } else {
+                None
+            };
             let label_fields = label_fields.map(|label_fields| {
                 let mut span = label_fields[0].__span();
 
@@ -926,7 +1066,10 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
 
                 if let Some(setup) = field.setup(field_uid) {
                     match setup {
-                        Ok(setup) => {field_uid += 1; prefix_setups.push(setup)},
+                        Ok(setup) => {
+                            field_uid += 1;
+                            prefix_setups.push(setup)
+                        }
                         Err(e) => return e.into_compile_error(),
                     }
                 }
@@ -942,13 +1085,25 @@ pub fn x86(tokens: TokenStream) -> TokenStream {
             quote! {
                 pub struct #name(#(pub #var_field_types),*);
 
-                impl Encodable for #name {
-                    fn encode(&self) -> Vec<u8> {
+                // impl Encodable for #name {
+                //     fn encode(&self) -> Vec<u8> {
+                //         let Self(#(#var_field_names),*) = self;
+                //         #(#prefix_setups)*
+                //         #(#ins_field_setups)*
+                //
+                //         vec![#(#prefix_bytes,)* #(#opcodes,)* #(#ins_field_bytes),*]
+                //     }
+                //     fn len(&self) -> u32 { #ins_len }
+                //     #label_fields
+                // }
+
+                impl Encodable2 for #name {
+                    fn encode(&self, stream: &mut CodeBuffer) {
                         let Self(#(#var_field_names),*) = self;
                         #(#prefix_setups)*
                         #(#ins_field_setups)*
 
-                        vec![#(#prefix_bytes,)* #(#opcodes,)* #(#ins_field_bytes),*]
+                        stream.write(&[#(#prefix_bytes,)* #(#opcodes,)* #(#ins_field_bytes),*]);
                     }
                     fn len(&self) -> u32 { #ins_len }
                     #label_fields
