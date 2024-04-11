@@ -143,22 +143,29 @@ pub trait Encodable {
 
 pub struct CodeBuffer {
     code: Vec<u8>,
+    pos: usize,
 }
+
 
 impl CodeBuffer {
     pub fn new() -> Self {
-        Self { code: vec![] }
+        Self { code: vec![], pos: 0 }
     }
     pub fn with_initial_size(size: usize) -> Self {
         Self {
             code: Vec::with_capacity(size),
+            pos: 0,
         }
+    }
+    pub fn pos(&self) -> usize {
+        self.pos
     }
 }
 
 impl Write for CodeBuffer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.code.extend(buf);
+        self.pos += buf.len();
         Ok(buf.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -185,6 +192,15 @@ pub trait Encodable2 {
             "An instruction that needs a relative offset must implement resolve_reloff() function"
         )
     }
+
+    fn has_dynamic_length(&self) -> bool {
+        false
+    }
+    fn dynamic_length(&self, codepos: usize) -> u32 {
+        unimplemented!(
+           "A dynamically sized instruction must implement dynamic_length() function"
+        )
+    }
 }
 
 struct ModRMImm {
@@ -195,12 +211,30 @@ struct ModRMImm {
 
 x86!(0xC3, Ret);
 
-impl Encodable for u8 {
-    fn encode(&self) -> Vec<u8> {
-        vec![*self]
+// impl Encodable for u8 {
+//     fn encode(&self) -> Vec<u8> {
+//         vec![*self]
+//     }
+//     fn len(&self) -> u32 {
+//         self.encode().len() as u32
+//     }
+// }
+
+impl Encodable2 for u8 {
+    fn encode(&self, buf: &mut CodeBuffer) {
+        buf.write(&[*self]);
     }
     fn len(&self) -> u32 {
-        self.encode().len() as u32
+        1
+    }
+}
+
+impl Encodable2 for &[u8] {
+    fn encode(&self, buf: &mut CodeBuffer) {
+        buf.write(self);
+    }
+    fn len(&self) -> u32 {
+        std::mem::size_of_val(self) as u32
     }
 }
 
@@ -227,7 +261,8 @@ pub fn gen_code(mut codes: Vec<crate::InsPtr>) -> GenCode {
             labels_parsed.insert(ins.0.get_label().to_owned(), pos);
             pos
         } else {
-            pos + ins.0.len() as i32
+            let len = if ins.0.has_dynamic_length() { ins.0.dynamic_length(pos as usize) } else { ins.0.len() };
+            pos + len as i32
         }
     });
 
@@ -238,7 +273,12 @@ pub fn gen_code(mut codes: Vec<crate::InsPtr>) -> GenCode {
 
     let mut pos = 0;
     for code in &mut codes {
-        let code_len = code.0.len() as i32;
+        let code_len = if code.0.has_dynamic_length() {
+            code.0.dynamic_length(pos as usize)
+        } else {
+            code.0.len()
+        };
+        let code_len = code_len as i32;
         if code.0.need_reloff_resolving() {
             let labels = code.0.resolve_reloff();
             for label in labels {
@@ -257,7 +297,7 @@ pub fn gen_code(mut codes: Vec<crate::InsPtr>) -> GenCode {
             }
         }
         code.0.encode(&mut code_buffer);
-        pos += code.0.len() as i32;
+        pos += code_len;
     }
 
     //encoding
@@ -578,6 +618,32 @@ impl Label {
 //         self.encode().len() as u32
 //     }
 // }
+//
+
+pub struct AlignmentPadding(pub u32);
+
+
+impl Encodable2 for AlignmentPadding {
+    fn encode(&self, buf: &mut CodeBuffer) {
+        let padding_needed = buf.pos % self.0 as usize;
+
+        for _ in 0..padding_needed {
+            buf.write(&[0]);
+        }
+    }
+
+    fn has_dynamic_length(&self) -> bool {
+        true
+    }
+
+    fn dynamic_length(&self, pos: usize) -> u32 {
+        (pos % self.0 as usize) as u32
+    }
+
+    fn len(&self) -> u32 {
+        panic!("AlginmentPadding does not have static length. Tried to call .len() on a dynamically sized instruction");
+    }
+}
 
 impl Encodable2 for Label {
     fn encode(&self, buf: &mut CodeBuffer) {}
@@ -613,4 +679,9 @@ x86! {Mov64,
 
     [REX.W.(B=op1.extended::<u8>()), 0xC7], Md8Imm32, op1:GPReg, op2: i32, op3: i32 => [ModRM(RegAddrPlusDisp8, 0, *op1), Imm8(op2), Imm32(op3)]
     [REX.W.(B=op1.extended::<u8>()), 0xB8+u8::from(*op1)], RImm64, op1:GPReg, op2: i64 => [Imm64(op2)]
+}
+
+x86! {Movss,
+    [0xF3, 0x0F, 0x10], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op1, *op2)] 
+    [0xF3, 0x0F, 0x10], RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)] 
 }

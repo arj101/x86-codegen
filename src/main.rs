@@ -232,53 +232,54 @@ fn main() {
     //
     let fc_ptr: extern "C" fn(i32) -> i32 = unsafe { std::mem::transmute(fc) };
 
-    let start = std::time::Instant::now();
-    let n = 1000;
-    for _ in 0..n {
-        let code = pretty_code_vec![
-            // PushR(Rax),
-            PushR Rbx;
-            PushR Rcx;
-            PushR Rdx;
-            PushR Rsi;
-            PushR Rdi;
 
-            PushR Rbp;
-            Mov64RR Rbp Rsp;
-            //
-            Mov64RR Rbx Rdi;
+    let code = pretty_code_vec![
+        // PushR(Rax),
+        PushR Rbx;
+        PushR Rcx;
+        PushR Rdx;
+        PushR Rsi;
+        PushR Rdi;
 
-            Mov64RImm64 Rax 284242849438492;
-            Mov64Md8R Rbp -2 Rax;
+        PushR Rbp;
+        Mov64RR Rbp Rsp;
+        //
+        Mov64RR Rbx Rdi;
 
-            Mov64Md8Imm32 Rbp -4 1;
+        Mov64RImm64 Rax 284242849438492;
+        Mov64Md8R Rbp -2 Rax;
 
-            $loop_start
-            Mov64RMd8 Rdi Rbp -4;
-            CallM Rbx;
-            Mov64Md8R Rbp -4 Rax;
+        Mov64Md8Imm32 Rbp -4 1;
 
-            CmpRImm Rax 10;
-            JmpLENear $loop_start;
+        $loop_start
+        Mov64RMd8 Rdi Rbp -4;
+        CallM Rbx;
+        Mov64Md8R Rbp -4 Rax;
 
-            Mov64RImm64 Rax 2484;
+        CmpRImm Rax 10;
+        JmpLENear $loop_start;
 
-            PopR Rbp;
-            PopR Rdi;
-            PopR Rsi;
-            PopR Rdx;
-            PopR Rcx;
-            PopR Rbx;
-            // PopR(Rax),
-            Ret;
-        ];
-        let code_fn =
-            encode!(no_disasm, code => extern "C" fn ( extern "C" fn (i32) -> i32) -> i64);
-    }
-    println!(
-        "took {}us per JIT",
-        start.elapsed().as_micros() as f64 / n as f64
-    );
+        // MovssRM Xmm1 Rax;
+
+        Mov64RImm64 Rax 2484;
+
+        PopR Rbp;
+        PopR Rdi;
+        PopR Rsi;
+        PopR Rdx;
+        PopR Rcx;
+        PopR Rbx;
+        // PopR(Rax),
+        Ret;
+        $@
+           AlignmentPadding(16)
+        @
+        $@
+           [3u8].as_slice()
+        @
+    ];
+
+    let code_fn = encode!(code => extern "C" fn ( extern "C" fn (i32) -> i32) -> i64);
 
     // // let code_ptr = unsafe { code_alloc_inner(&code_encoded.0) };
     // // let code_entry_ptr = unsafe { &((*code_ptr.0)[0]) };
@@ -286,7 +287,7 @@ fn main() {
     // // let code_fn: extern "C" fn (extern "C" fn(i32) -> i32) -> u64 = unsafe { std::mem::transmute(code_entry_ptr) };
     // let code_fn = code_alloc!(&code_encoded.0 => extern "C" fn (extern "C" fn (i32) -> i32) -> i64);
     //
-    // let result = code_fn(fc_ptr);
+    let result = code_fn(fc_ptr);
     // // unsafe {
     // //     let s = &(*code_ptr);
     // // let layout = alloc::Layout::from_size_align(s.len(), 4096).expect("layout error");
@@ -294,7 +295,7 @@ fn main() {
     // // }
     // //
     //
-    // println!("result = {result}");
+    println!("result = {result}");
     //
     // std::mem::forget(code_encoded);
     // std::mem::forget(code);

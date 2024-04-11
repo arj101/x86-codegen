@@ -906,6 +906,7 @@ enum AsmType {
     Ins(Ident, Vec<FieldType>),
     Label(Ident),
     LabelExpr(Expr),
+    RawExpr(Expr),
 }
 
 use proc_macro2::TokenStream as TokenStream2;
@@ -922,6 +923,7 @@ impl ToTokens for AsmType {
                 let ident = proc_macro2::Literal::string(&ident.to_string());
                 tokens.extend(quote! {Label::new(#ident)});
             }
+            AsmType::RawExpr(expr) => tokens.extend(quote! {#expr}),
         }
     }
 }
@@ -934,6 +936,9 @@ impl Parse for Asm {
             if input.parse::<Token![$]>().is_ok() {
                 if input.parse::<Token![$]>().is_ok() {
                     inss.push(AsmType::LabelExpr(input.parse::<Expr>()?));
+                } else if input.parse::<Token![@]>().is_ok() {
+                    inss.push(AsmType::RawExpr(input.parse::<Expr>()?));
+                    input.parse::<Token![@]>()?;
                 } else {
                     inss.push(AsmType::Label(input.parse::<Ident>()?));
                 }
@@ -943,6 +948,7 @@ impl Parse for Asm {
 
                 while input.parse::<Token![;]>().is_err() {
                     // if input.parse::<Token![$]>().is_ok() {
+
                     if input.parse::<Token![$]>().is_ok() {
                         if input.parse::<Token![$]>().is_ok() {
                             fields.push(FieldType::LabelExpr(input.parse::<Expr>()?));
@@ -975,7 +981,7 @@ pub fn pretty_code_vec(tokens: TokenStream) -> TokenStream {
 
     quote! {
         vec![
-        #(InsPtr(std::boxed::Box::new(#ins_codes))),*
+            #(InsPtr(std::boxed::Box::new(#ins_codes))),*
         ]
     }
     .into()
