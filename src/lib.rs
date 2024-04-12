@@ -5,7 +5,7 @@ use quote::{format_ident, quote, quote_spanned, ToTokens};
 use std::boxed::Box;
 use std::cell::OnceCell;
 use syn::parse::{Parse, ParseBuffer, ParseStream, Parser, Result};
-use syn::token::Token;
+use syn::token::{Bracket, Paren, Token};
 use syn::{bracketed, parse_macro_input, Expr, Ident, Stmt, Token, Type};
 
 trait InsField {
@@ -173,11 +173,18 @@ impl InsField for Imm64 {
     }
 }
 
-struct Rel32(Expr, OnceCell<u8>);
+struct Rel32(Expr, OnceCell<u8>, Option<Expr>);
 
 impl InsField for Rel32 {
     fn parse(input: &ParseBuffer) -> Result<Self> {
-        Ok(Self(input.parse()?, OnceCell::new()))
+        let expr1 = input.parse()?;
+
+        let mut offset_expr = None;
+        if input.parse::<Token![,]>().is_ok() {
+            offset_expr = input.parse().ok();
+        }
+
+        Ok(Self(expr1, OnceCell::new(), offset_expr))
     }
 
     fn setup(&self, uid: u8) -> Option<Result<Stmt>> {
@@ -185,8 +192,13 @@ impl InsField for Rel32 {
         self.1.set(uid).unwrap();
         let ident = format_ident!("rel32_{}", self.1.get().unwrap());
         let span = label.__span();
+        let offset_expr = if let Some(e) = &self.2 {
+            vec![e]
+        } else {
+            vec![]
+        };
         Some(syn::parse2(quote_spanned! {span =>
-            let #ident = (#label).off32().to_le_bytes();
+            let #ident = (#label.off32() #(+ #offset_expr)*).to_le_bytes();
         }))
     }
 
@@ -906,7 +918,7 @@ enum AsmType {
     Ins(Ident, Vec<FieldType>),
     Label(Ident),
     LabelExpr(Expr),
-    RawExpr(Expr),
+    RawExprs(Vec<Expr>),
 }
 
 use proc_macro2::TokenStream as TokenStream2;
@@ -917,13 +929,13 @@ struct Asm {
 impl ToTokens for AsmType {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
         match self {
-            AsmType::Ins(ident, fields) => tokens.extend(quote! {#ident(#(#fields),*)}),
-            AsmType::LabelExpr(expr) => tokens.extend(quote! { Label::new(#expr) }),
+            AsmType::Ins(ident, fields) => tokens.extend(quote! {InsPtr(std::boxed::Box::new(#ident(#(#fields),*)))}),
+            AsmType::LabelExpr(expr) => tokens.extend(quote! { InsPtr(std::boxed::Box::new(Label::new(#expr))) }),
             AsmType::Label(ident) => {
                 let ident = proc_macro2::Literal::string(&ident.to_string());
-                tokens.extend(quote! {Label::new(#ident)});
+                tokens.extend(quote! {InsPtr(std::boxed::Box::new(Label::new(#ident)))});
             }
-            AsmType::RawExpr(expr) => tokens.extend(quote! {#expr}),
+            AsmType::RawExprs(expr) => tokens.extend(quote! {#(InsPtr(std::boxed::Box::new(#expr))),*}),
         }
     }
 }
@@ -940,8 +952,12 @@ impl Parse for Asm {
                     inss.push(AsmType::Label(input.parse::<Ident>()?));
                 }
             } else if input.parse::<Token![@]>().is_ok() {
-                inss.push(AsmType::RawExpr(input.parse::<Expr>()?));
-                input.parse::<Token![@]>()?;
+                let mut exprs = vec!();
+                while input.parse::<Token![@]>().is_err() {
+                    exprs.push(input.parse()?);
+                }
+
+                inss.push(AsmType::RawExprs(exprs));
             } else {
                 let ins = input.parse::<Ident>()?;
                 let mut fields = vec![];
@@ -981,7 +997,7 @@ pub fn pretty_code_vec(tokens: TokenStream) -> TokenStream {
 
     quote! {
         vec![
-            #(InsPtr(std::boxed::Box::new(#ins_codes))),*
+            #(#ins_codes),*
         ]
     }
     .into()

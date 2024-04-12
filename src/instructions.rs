@@ -23,6 +23,9 @@ pub enum GPReg {
     R13b, R13w, R13d, R13,
     R14b, R14w, R14d, R14,
     R15b, R15w, R15d, R15,
+
+    ///0b101, for handling a special case in ModRM byte
+    None,
 }
 
 impl From<GPReg> for u8 {
@@ -47,6 +50,8 @@ impl From<GPReg> for u8 {
             R13b | R13w | R13d | R13 => 5,
             R14b | R14w | R14d | R14 => 6,
             R15b | R15w | R15d | R15 => 7,
+
+            None => 0b101
         }
     }
 }
@@ -686,7 +691,8 @@ x86! {Mov64,
 
     [REX.W.(B=op2.extended::<u8>()).(R=op1.extended::<u8>()), 0x8B], RMd32, op1:GPReg, op2:GPReg, op3:i32 => [ModRM(RegAddrPlusDisp32, *op1, *op2), Imm32(op3)]
 
-    [REX.W.(B=op2.extended::<u8>()).(R=op2.extended::<u8>()), 0x8B], RMrel32,  op2:GPReg, op3:LabelField => [ModRM(RegAddr, *op2, GPReg::Rbp), Rel32(op3)]
+    [REX.W.(B=op2.extended::<u8>()).(R=op2.extended::<u8>()), 0x8B], RMrel32,  op2:GPReg, op3:LabelField => [ModRM(RegAddr, *op2, GPReg::None), Rel32(op3)]
+    [REX.W.(B=op2.extended::<u8>()).(R=op2.extended::<u8>()), 0x8B], RMrel32off,  op2:GPReg, op3:LabelField, op4:i32 => [ModRM(RegAddr, *op2, GPReg::None), Rel32(op3, op4)]
 
 
     [REX.W.(B=op1.extended::<u8>()).(R=op3.extended::<u8>()), 0x89], Md8R, op1:GPReg, op2:i8, op3:GPReg => [ModRM(RegAddrPlusDisp8, *op3, *op1), Imm8(op2)]

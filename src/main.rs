@@ -232,7 +232,6 @@ fn main() {
     //
     let fc_ptr: extern "C" fn(i32) -> i32 = unsafe { std::mem::transmute(fc) };
 
-
     let code = pretty_code_vec![
         // PushR(Rax),
         PushR Rbx;
@@ -264,7 +263,7 @@ fn main() {
 
         Mov64RImm64 Rax 2;
 
-        Mov64RMrel32 Rax $num; //return the value stores in memory address num
+        Mov64RMrel32off Rax $num 0; //return the value stores in memory address num
 
         PopR Rbp;
         PopR Rdi;
@@ -276,14 +275,16 @@ fn main() {
         Ret;
 
         @
-           AlignmentPadding(4)
-           //Adds padding so that the next byte is aligned as per the 
+           AlignmentPadding(11)
+           //Adds padding so that the next byte is aligned as per the
            //given alginemnt
         @
 
         $num
         @
-          91169420i32.to_le_bytes().to_vec()
+           1234u64.to_le_bytes().to_vec()
+           0xddccbbaa9988u64.to_le_bytes().to_vec()
+           0x77665544332211u64.to_le_bytes().to_vec()
         @
     ];
 
