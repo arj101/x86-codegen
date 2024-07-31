@@ -125,7 +125,7 @@ macro_rules! encode {
         // let code_ptr = unsafe { code_alloc_inner(&code_encoded.0) };
         // let code_entry_ptr = unsafe { &((*code_ptr.0)[0]) };
         // let code_fn: extern "C" fn (extern "Ca" fn(i32) -> i32) -> u64 = unsafe { std::mem::transmute(code_entry_ptr) };
-        liiet code_fn = crate::code_alloc!(&code_encoded.0 => $rt_type);
+        let code_fn = crate::code_alloc!(&code_encoded.0 => $rt_type);
 
         // unsafe {
         //     let s = &(*code_ptr);

@@ -16,78 +16,137 @@ pub fn quick_run<A, R>(arg: A, code: Vec<InsPtr>) -> R {
     f(arg)
 }
 
+use ir::*;
+use std::rc::Rc;
+
+extern "C" fn ree(i: i32) {
+    println!("hello world {i}");
+}
+
 fn main() {
 
-    let mut f = |i: i32| -> i32 {
-        println!("hi from rust {i}");
-        i + 1
+    // let mut f = |i: i32| -> i32 {
+    //     println!("hi from rust {i}");
+    //     i + 1
+    // };
+    //
+    // let fn_mut_ref = &mut f;
+    // let fc_ = libffi::high::Closure1::new(&mut f);
+    // let fc = fc_.code_ptr();
+    // let fc_ptr: extern "C" fn(i32) -> i32 = unsafe { std::mem::transmute(fc) };
+    //
+    // let code = pretty_code_vec![
+    //     // PushR(Rax),
+    //     PushR Rbx;
+    //     PushR Rcx;
+    //     PushR Rdx;
+    //     PushR Rsi;
+    //     PushR Rdi;
+    //
+    //     PushR Rbp;
+    //     Mov64RR Rbp Rsp;
+    //     //
+    //     Mov64RR Rbx Rdi;
+    //
+    //     Mov64RImm64 Rax 284242849438492;
+    //     Mov64Md8R Rbp -2 Rax;
+    //
+    //     Mov64Md8Imm32 Rbp -4 1;
+    //
+    //     $loop_start
+    //
+    //     Mov64RMd8 Rdi Rbp -4;
+    //     CallM Rbx;
+    //     Mov64Md8R Rbp -4 Rax;
+    //
+    //     CmpRImm Rax 10;
+    //     JmpLENear $loop_start;
+    //
+    //     // MovssRM Xmm1 Rax;
+    //
+    //     Mov64RImm64 Rax 2;
+    //
+    //     Mov64RMrel32off Rax $num 0; //return the value stores in memory address num
+    //
+    //     PopR Rbp;
+    //     PopR Rdi;
+    //     PopR Rsi;
+    //     PopR Rdx;
+    //     PopR Rcx;
+    //     PopR Rbx;
+    //     // PopR(Rax),
+    //     Ret;
+    //
+    //     @
+    //        AlignmentPadding(8)
+    //        //Adds padding so that the next byte is aligned as per the
+    //        //given alginemnt
+    //     @
+    //
+    //     $num
+    //     @
+    //        1234u64.to_le_bytes().to_vec()
+    //        0xddccbbaa9988u64.to_le_bytes().to_vec()
+    //        0x77665544332211u64.to_le_bytes().to_vec()
+    //     @
+    // ];
+    //
+    // // let code_fn = encode!(cod => extern "C" fn ( extern "C" fn (i32) -> i32) -> i64);
+    // // let result = code_fn(ree);
+    // println!(
+    //     "result = {}",
+    //     quick_run::<extern "C" fn(i32) -> i32, i32>(fc_ptr, code)
+    // );
+    //
+    let mut f = |i: i32| {
+        println!("value = {i}");
     };
 
     let fn_mut_ref = &mut f;
     let fc_ = libffi::high::Closure1::new(&mut f);
     let fc = fc_.code_ptr();
-    let fc_ptr: extern "C" fn(i32) -> i32 = unsafe { std::mem::transmute(fc) };
+    let fc_ptr: extern "C" fn(i32) -> () = unsafe { std::mem::transmute(fc) };
 
-    let code = pretty_code_vec![
-        // PushR(Rax),
-        PushR Rbx;
-        PushR Rcx;
-        PushR Rdx;
-        PushR Rsi;
-        PushR Rdi;
 
-        PushR Rbp;
-        Mov64RR Rbp Rsp;
-        //
-        Mov64RR Rbx Rdi;
+    macro_rules! ident {
+        ($s:expr) => { Rc::new(($s).to_string()) }
+    };
 
-        Mov64RImm64 Rax 284242849438492;
-        Mov64Md8R Rbp -2 Rax;
+    let inss = ir_encode_fn(vec![
+        IRIns::InitStore32 {
+            dest: ident!("hello"),
+            val: 123,
+        },
+        // IRIns::Print32 {
+        //     val: Val::Literal(12),
+        // },
+        // IRIns::Print32 {
+        //     val: Val::Ident(Rc::new("hello".to_string())),
+        // },
+        IRIns::Print32 {
+            val: Val::Ident(Rc::new("hello".to_string())),
+        },
+        IRIns::Add32 {
+            dest: ident!("hello"),
+            val1: Val::Ident(ident!("hello")),
+            val2: Val::Literal(-23),
+        },
+        IRIns::Print32 {
+            val: Val::Ident(Rc::new("hello".to_string())),
+        },
+        IRIns::Print32 {
+            val: Val::Ident(Rc::new("hello".to_string())),
+        },
+        IRIns::Print32 {
+            val: Val::Ident(Rc::new("hello".to_string())),
+        },
+    ]);
 
-        Mov64Md8Imm32 Rbp -4 1;
+// fc_ptr(1);
 
-        $loop_start
-
-        Mov64RMd8 Rdi Rbp -4;
-        CallM Rbx;
-        Mov64Md8R Rbp -4 Rax;
-
-        CmpRImm Rax 10;
-        JmpLENear $loop_start;
-
-        // MovssRM Xmm1 Rax;
-
-        Mov64RImm64 Rax 2;
-
-        Mov64RMrel32off Rax $num 0; //return the value stores in memory address num
-
-        PopR Rbp;
-        PopR Rdi;
-        PopR Rsi;
-        PopR Rdx;
-        PopR Rcx;
-        PopR Rbx;
-        // PopR(Rax),
-        Ret;
-
-        @
-           AlignmentPadding(8)
-           //Adds padding so that the next byte is aligned as per the
-           //given alginemnt
-        @
-
-        $num
-        @
-           1234u64.to_le_bytes().to_vec()
-           0xddccbbaa9988u64.to_le_bytes().to_vec()
-           0x77665544332211u64.to_le_bytes().to_vec()
-        @
-    ];
-
-    // let code_fn = encode!(code => extern "C" fn ( extern "C" fn (i32) -> i32) -> i64);
-    // let result = code_fn(ree);
-    println!(
-        "result = {}",
-        quick_run::<extern "C" fn(i32) -> i32, i32>(fc_ptr, code)
-    );
+    let f = encode!(inss => extern "C" fn(extern "C" fn (i32) -> ()) -> i32);
+    let result = f(fc_ptr);
+    println!("here");
+    println!("result = {result:#X}");
+    // println!("result = {}", crate::quick_run::<extern "C" fn(i32) -> (), i32>(fc_ptr, inss));
 }

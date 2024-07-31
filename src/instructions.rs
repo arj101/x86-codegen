@@ -384,6 +384,11 @@ x86! {
     0x03, RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
 }
 
+x86! {
+    Add64,
+    [REX.W, 0x81], RImm, op1: GPReg, val:u32 => [ModRM(Reg, 0, *op1), Imm32(val)]
+}
+
 x86! {Sub,
     0x2D, EaxImm, val:i32 => [Imm32(val)]
     0x81, RImm, op1:GPReg, val:i32 => [ModRM(Reg, 5, *op1) Imm32(val)]
@@ -392,6 +397,11 @@ x86! {Sub,
     0x29, RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op2, *op1)]
     0x29, MR, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op2, *op1)]
     0x2B, RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
+}
+
+x86! {
+    Sub64,
+    [REX.W, 0x81], RImm, op1: GPReg, val: u32 => [ModRM(Reg, 5, *op1), Imm32(val)]
 }
 
 x86!(And,
@@ -711,3 +721,5 @@ x86! {Movss,
     [0xF3, 0x0F, 0x10], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op1, *op2)] 
     [0xF3, 0x0F, 0x10], RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)] 
 }
+
+x86! {0xc9, Leave}

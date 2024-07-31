@@ -84,22 +84,28 @@ pub fn ir_encode_fn(inss: Vec<IRIns>) -> Vec<InsPtr> {
     let mut stack = StackMap::new();
 
     encoded.extend(pretty_code_vec![
-        PushR Rbx;
+        // PushR Rsp;
         PushR Rcx;
+        PushR Rbx;
         PushR Rdx;
         PushR Rsi;
         PushR Rdi;
 
         PushR Rbp;
         Mov64RR Rbp Rsp;
-        Mov64RR Rsi Rdi;
+
+
+        // Mov64RR Rbp Rsp;
+        Sub64RImm Rsp 0xff; //this space is used by all the variables, so make sure it is
+    //adequate
+        Mov64RR Rbx Rdi;
     ]);
 
     for ins in inss {
         use IRIns::*;
         match ins {
             InitStore32 { dest, val } => {
-                stack.insert(Rc::clone(&dest), 4);
+                stack.insert(Rc::clone(&dest), 8);
                 let StackLoc { rbp_offset, .. } = stack.get(&dest);
                 let off = 0 - rbp_offset as i32;
 
@@ -107,21 +113,57 @@ pub fn ir_encode_fn(inss: Vec<IRIns>) -> Vec<InsPtr> {
                     Mov64Md32Imm32 Rbp off val;
                 ]);
             }
+            Add32 { dest, val1, val2 } => {
+                let StackLoc { rbp_offset, .. } = stack.get(&dest);
+                let off = 0 - rbp_offset as i32;
+
+                match (val1, val2) {
+                    (Val::Ident(v1), Val::Literal(l2)) => {
+                        let StackLoc { rbp_offset: v1_off, .. } = stack.get(&dest);
+                        let off_1 = 0 - v1_off as i32;
+                        encoded.extend(pretty_code_vec![
+                            Mov64RMd32 Rdi Rbp off_1;
+                            Mov64RImm64 Rsi (l2.into());
+                            AddRR Rdi Rsi;
+                            Mov64Md32R Rbp off_1 Rdi;
+                        ]);
+                    }
+                    _ => unimplemented!(),
+                }
+            }
             Print32 { val } => match val {
                 Val::Literal(v) => {
                     let v = v.into();
                     encoded.extend(pretty_code_vec![
                         Mov64RImm64 Rdi v;
-                        CallM Rsi;
+                        CallM Rbx;
                     ]);
                 }
                 Val::Ident(dest) => {
                     let StackLoc { rbp_offset, .. } = stack.get(&dest);
 
                     let off = 0 - rbp_offset as i32;
+                    let rsp = 16 as i32;
                     encoded.extend(pretty_code_vec![
                         Mov64RMd32 Rdi Rbp off;
-                        CallM Rsi;
+                            // Mov64RR Rdi Rdx;
+                        Mov64RR Rax Rbx;
+                        // PushR Rdi;
+
+                        // Mov64RR Rdi Rbp;
+                    //  Pus
+                        // PushR Rax;
+                        // Sub64RImm Rsp 0x28;
+                        // Mov64RR Rbx Rbx;
+                    // CallR Rax;
+                        CallM Rax;
+                        // Add64RImm Rsp 0x28;
+                        // PopR Rax;
+
+                        // PopR Rdi;
+
+                        // Mov64RR Rdi Rbp;
+                        // CallM Rsi;
                     ]);
                 }
             },
@@ -130,20 +172,33 @@ pub fn ir_encode_fn(inss: Vec<IRIns>) -> Vec<InsPtr> {
     }
 
     encoded.extend(pretty_code_vec![
-        Mov64RMd32 Rcx Rbp -4;
-        MovRR Rax Rcx;
+        // MovRR Rax Rb;
+        // Mov64RMd32 Rax Rbp -4;
+       Add64RImm Rsp 0xff;
+        // MovRR Rax Rcx;
+       // PopR Rsp;
+        // PopR Rbp;
+        Mov64RR Rsp Rbp;
         PopR Rbp;
+
         PopR Rdi;
         PopR Rsi;
         PopR Rdx;
         PopR Rcx;
         PopR Rbx;
-        // PopR(Rax),
+        // PopR Rcx;
+       // Leave;
+        // Add64RImm Rsp 0x10;
         Ret;
     ]);
 
     encoded
 }
+//
+// extern "C" fn f(i: i32) {
+//
+//         println!("value = {i}");
+// }
 
 #[test]
 fn test_ir_encode() {
@@ -161,13 +216,16 @@ fn test_ir_encode() {
             dest: Rc::new("hello".to_string()),
             val: 123,
         },
-        // IRIns::Print32 {
-        //     val: Val::Literal(12),
-        // },
+        IRIns::Print32 {
+            val: Val::Literal(12),
+        },
         IRIns::Print32 {
             val: Val::Ident(Rc::new("hello".to_string())),
         },
     ]);
 
-    println!("result = {}", crate::quick_run::<extern "C" fn(i32) -> (), i32>(fc_ptr, inss));
+    println!(
+        "result = {}",
+        crate::quick_run::<extern "C" fn(i32) -> (), i32>(fc_ptr, inss)
+    );
 }
