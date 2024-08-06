@@ -1,3 +1,4 @@
+use crate::encode::InsPtr;
 use crate::instructions::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -31,18 +32,18 @@ enum MemoryLoc {
     Reg(RegLoc),
 }
 
-pub enum ExpIR {
-    Literal(i32),
-    Ident(Rc<String>),
-    BinOp {
-        op: BinOp,
-        lhs: Box<ExpIR>,
-        rhs: Box<ExpIR>,
-    },
-    UnOp {
-        op: UnOp,
-        val: Box<ExpIR>,
-    },
+type Instructions = Vec<InsPtr>;
+
+pub trait ExpIR {
+    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String>;
+}
+
+struct Literal(i32);
+
+impl ExpIR for Literal {
+    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
+        todo!()
+    }
 }
 
 struct RegisterAllocator {
@@ -87,8 +88,7 @@ impl RegisterAllocator {
     }
 }
 
-struct StackPtr(u32);
-
+#[derive(Clone, Copy)]
 struct StackVal {
     offset: u32,
     size: u32,
@@ -203,6 +203,12 @@ impl Into<StackVal> for StackIntermediateValPtr {
             offset: self.offset,
             size: self.size,
         }
+    }
+}
+
+impl Into<Rc<String>> for StackIntermediateValPtr {
+    fn into(self) -> Rc<String> {
+        self.name
     }
 }
 
