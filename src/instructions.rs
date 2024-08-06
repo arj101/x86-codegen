@@ -51,7 +51,7 @@ impl From<GPReg> for u8 {
             R14b | R14w | R14d | R14 => 6,
             R15b | R15w | R15d | R15 => 7,
 
-            None => 0b101
+            None => 0b101,
         }
     }
 }
@@ -151,10 +151,12 @@ pub struct CodeBuffer {
     pos: usize,
 }
 
-
 impl CodeBuffer {
     pub fn new() -> Self {
-        Self { code: vec![], pos: 0 }
+        Self {
+            code: vec![],
+            pos: 0,
+        }
     }
     pub fn with_initial_size(size: usize) -> Self {
         Self {
@@ -202,9 +204,7 @@ pub trait Encodable2 {
         false
     }
     fn dynamic_length(&self, codepos: usize) -> u32 {
-        unimplemented!(
-           "A dynamically sized instruction must implement dynamic_length() function"
-        )
+        unimplemented!("A dynamically sized instruction must implement dynamic_length() function")
     }
 }
 
@@ -266,7 +266,11 @@ pub fn gen_code(mut codes: Vec<crate::InsPtr>) -> GenCode {
             labels_parsed.insert(ins.0.get_label().to_owned(), pos);
             pos
         } else {
-            let len = if ins.0.has_dynamic_length() { ins.0.dynamic_length(pos as usize) } else { ins.0.len() };
+            let len = if ins.0.has_dynamic_length() {
+                ins.0.dynamic_length(pos as usize)
+            } else {
+                ins.0.len()
+            };
             pos + len as i32
         }
     });
@@ -274,7 +278,6 @@ pub fn gen_code(mut codes: Vec<crate::InsPtr>) -> GenCode {
     let code_len = codes.len() * 8;
 
     let mut code_buffer = CodeBuffer::new();
-
 
     let mut pos = 0;
     for code in &mut codes {
@@ -646,11 +649,12 @@ impl Encodable2 for Vec<u8> {
 
 pub struct AlignmentPadding(pub u32);
 
-
 impl Encodable2 for AlignmentPadding {
     fn encode(&self, buf: &mut CodeBuffer) {
         let mut padding_needed = buf.pos % self.0 as usize;
-        if padding_needed > 0 { padding_needed = self.0 as usize - padding_needed };
+        if padding_needed > 0 {
+            padding_needed = self.0 as usize - padding_needed
+        };
 
         for _ in 0..padding_needed {
             buf.write(&[0]);
@@ -663,7 +667,9 @@ impl Encodable2 for AlignmentPadding {
 
     fn dynamic_length(&self, pos: usize) -> u32 {
         let mut padding_needed = pos % self.0 as usize;
-        if padding_needed > 0 { padding_needed = self.0 as usize - padding_needed };
+        if padding_needed > 0 {
+            padding_needed = self.0 as usize - padding_needed
+        };
         padding_needed as u32
     }
 
@@ -718,8 +724,8 @@ x86! {Mov64,
 }
 
 x86! {Movss,
-    [0xF3, 0x0F, 0x10], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op1, *op2)] 
-    [0xF3, 0x0F, 0x10], RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)] 
+    [0xF3, 0x0F, 0x10], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op1, *op2)]
+    [0xF3, 0x0F, 0x10], RM, op1:GPReg, op2:GPReg => [ModRM(RegAddr, *op1, *op2)]
 }
 
 x86! {0xc9, Leave}

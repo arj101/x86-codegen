@@ -929,13 +929,19 @@ struct Asm {
 impl ToTokens for AsmType {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
         match self {
-            AsmType::Ins(ident, fields) => tokens.extend(quote! {InsPtr(std::boxed::Box::new(#ident(#(#fields),*)))}),
-            AsmType::LabelExpr(expr) => tokens.extend(quote! { InsPtr(std::boxed::Box::new(Label::new(#expr))) }),
+            AsmType::Ins(ident, fields) => {
+                tokens.extend(quote! {InsPtr(std::boxed::Box::new(#ident(#(#fields),*)))})
+            }
+            AsmType::LabelExpr(expr) => {
+                tokens.extend(quote! { InsPtr(std::boxed::Box::new(Label::new(#expr))) })
+            }
             AsmType::Label(ident) => {
                 let ident = proc_macro2::Literal::string(&ident.to_string());
                 tokens.extend(quote! {InsPtr(std::boxed::Box::new(Label::new(#ident)))});
             }
-            AsmType::RawExprs(expr) => tokens.extend(quote! {#(InsPtr(std::boxed::Box::new(#expr))),*}),
+            AsmType::RawExprs(expr) => {
+                tokens.extend(quote! {#(InsPtr(std::boxed::Box::new(#expr))),*})
+            }
         }
     }
 }
@@ -952,7 +958,7 @@ impl Parse for Asm {
                     inss.push(AsmType::Label(input.parse::<Ident>()?));
                 }
             } else if input.parse::<Token![@]>().is_ok() {
-                let mut exprs = vec!();
+                let mut exprs = vec![];
                 while input.parse::<Token![@]>().is_err() {
                     exprs.push(input.parse()?);
                 }

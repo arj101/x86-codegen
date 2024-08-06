@@ -3,6 +3,7 @@
 mod instructions;
 #[macro_use]
 mod encode;
+mod exp_ir;
 mod ir;
 
 use crate::encode::{code_alloc_inner, InsPtr};
@@ -24,7 +25,6 @@ extern "C" fn ree(i: i32) {
 }
 
 fn main() {
-
     // let mut f = |i: i32| -> i32 {
     //     println!("hi from rust {i}");
     //     i + 1
@@ -107,9 +107,10 @@ fn main() {
     let fc = fc_.code_ptr();
     let fc_ptr: extern "C" fn(i32) -> () = unsafe { std::mem::transmute(fc) };
 
-
     macro_rules! ident {
-        ($s:expr) => { Rc::new(($s).to_string()) }
+        ($s:expr) => {
+            Rc::new(($s).to_string())
+        };
     };
 
     let inss = ir_encode_fn(vec![
@@ -134,6 +135,11 @@ fn main() {
         IRIns::Print32 {
             val: Val::Ident(Rc::new("hello".to_string())),
         },
+        IRIns::Add32 {
+            dest: ident!("hello"),
+            val1: Val::Ident(ident!("hello")),
+            val2: Val::Literal(-23),
+        },
         IRIns::Print32 {
             val: Val::Ident(Rc::new("hello".to_string())),
         },
@@ -142,7 +148,7 @@ fn main() {
         },
     ]);
 
-// fc_ptr(1);
+    // fc_ptr(1);
 
     let f = encode!(inss => extern "C" fn(extern "C" fn (i32) -> ()) -> i32);
     let result = f(fc_ptr);

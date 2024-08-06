@@ -41,6 +41,10 @@ pub enum IRIns {
     Print32 {
         val: Val<i32>,
     },
+
+    While {
+        body: Vec<IRIns>,
+    },
 }
 
 #[derive(Copy, Clone)]
@@ -119,7 +123,9 @@ pub fn ir_encode_fn(inss: Vec<IRIns>) -> Vec<InsPtr> {
 
                 match (val1, val2) {
                     (Val::Ident(v1), Val::Literal(l2)) => {
-                        let StackLoc { rbp_offset: v1_off, .. } = stack.get(&dest);
+                        let StackLoc {
+                            rbp_offset: v1_off, ..
+                        } = stack.get(&dest);
                         let off_1 = 0 - v1_off as i32;
                         encoded.extend(pretty_code_vec![
                             Mov64RMd32 Rdi Rbp off_1;
