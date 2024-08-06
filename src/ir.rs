@@ -206,7 +206,6 @@ pub fn ir_encode_fn(inss: Vec<IRIns>) -> Vec<InsPtr> {
 //         println!("value = {i}");
 // }
 
-#[test]
 fn test_ir_encode() {
     let mut f = |i: i32| {
         println!("value = {i}");

@@ -2,12 +2,12 @@ use codegen::pretty_code_vec;
 
 use crate::encode::InsPtr;
 use crate::instructions::GPReg::*;
-use crate::instructions::*;
+use crate::{instructions::*, quick_run};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum BinOp {
+enum BinOpType {
     Add,
     Sub,
     Mul,
@@ -15,8 +15,7 @@ enum BinOp {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum UnOp {
-    Not,
+enum UnOpType {
     Neg,
 }
 
@@ -33,6 +32,15 @@ enum RegLoc {
 enum MemoryLoc {
     StackLoc(StackVal),
     Reg(RegLoc),
+}
+
+impl MemoryLoc {
+    fn stack_loc(&self) -> StackVal {
+        match self {
+            MemoryLoc::StackLoc(s) => *s,
+            _ => panic!("not a stack loc"),
+        }
+    }
 }
 
 struct RegisterAllocator {
@@ -83,11 +91,18 @@ struct StackVal {
     size: u32,
 }
 
+impl StackVal {
+    fn as_rbp_offset(&self) -> i32 {
+        -(self.offset as i32)
+    }
+}
+
 //A memory allocation tracker based on RBP offset
 struct StackAllocator {
     stack_map: HashMap<Rc<String>, StackVal>,
     alloc_gaps: Vec<StackVal>,
     stack_offset: u32,
+    max_offset: u32,
 }
 
 impl StackAllocator {
@@ -96,12 +111,14 @@ impl StackAllocator {
             stack_map: HashMap::new(),
             stack_offset: 0,
             alloc_gaps: Vec::new(),
+            max_offset: 0,
         }
     }
 
     fn alloc_val(&mut self, ident: Rc<String>, size: u32) -> u32 {
         let mut rbp_offset = self.stack_offset + size;
 
+        let mut in_gap = false;
         if self.alloc_gaps.len() > 0 {
             let mut idx: Option<usize> = None;
             for (i, gap) in self.alloc_gaps.iter().enumerate() {
@@ -113,6 +130,7 @@ impl StackAllocator {
             }
             if let Some(idx) = idx {
                 self.alloc_gaps.remove(idx);
+                in_gap = true;
             }
         }
 
@@ -123,7 +141,14 @@ impl StackAllocator {
                 size,
             },
         );
-        self.stack_offset += size;
+        if !in_gap {
+            self.stack_offset += size;
+        }
+
+        if self.stack_offset > self.max_offset {
+            self.max_offset = self.stack_offset;
+        }
+
         rbp_offset
     }
 
@@ -163,6 +188,12 @@ struct StackIntermediateValPtr {
     name: Rc<String>,
     offset: u32,
     size: u32,
+}
+
+impl StackIntermediateValPtr {
+    fn as_rbp_offset(&self) -> i32 {
+        -(self.offset as i32)
+    }
 }
 
 impl Into<MemoryLoc> for StackIntermediateValPtr {
@@ -210,6 +241,10 @@ impl IREnv {
         }
     }
 
+    fn get_stack_loc(&self, name: Rc<String>) -> MemoryLoc {
+        MemoryLoc::StackLoc(self.stack_alloc.get_stack_val(&name))
+    }
+
     fn alloc_stack(&mut self, name: Rc<String>, val: i32, size: u32) -> MemoryLoc {
         let offset = self.stack_alloc.alloc_val(name, size);
         MemoryLoc::StackLoc(StackVal { offset, size })
@@ -238,13 +273,13 @@ struct Literal(i32);
 //evaluating a literal stores the value on stack(or register in the future!) and returns the location
 impl ExpIR for Literal {
     fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
-        let val = env.alloc_intermediate_val(self.0, 4);
+        let val = env.alloc_intermediate_val(self.0, 8);
         let offset = val.offset as i32;
         let offset = -offset;
         let code = pretty_code_vec!(
             Mov64Md32Imm32 Rbp offset self.0 ;
         );
-        todo!()
+        Ok((code, val.into()))
     }
 }
 
@@ -252,7 +287,141 @@ struct Ident(Rc<String>);
 //evaluating an identifier only retrieves the offset from the stack map. No code generation is needed
 impl ExpIR for Ident {
     fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
-        let loc = env.get_stack_loc(&self.0);
+        let loc = env.get_stack_loc(Rc::clone(&self.0));
         Ok((vec![], loc))
     }
+}
+
+struct BinOp {
+    op: BinOpType,
+    lhs: Box<dyn ExpIR>,
+    rhs: Box<dyn ExpIR>,
+}
+
+impl ExpIR for BinOp {
+    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
+        let (mut lhs_code, lhs_loc) = self.lhs.eval(env)?;
+        let (mut rhs_code, rhs_loc) = self.rhs.eval(env)?;
+
+        let mut code = vec![];
+
+        let lhs_loc = lhs_loc.stack_loc();
+        let rhs_loc = rhs_loc.stack_loc();
+
+        code.extend(lhs_code);
+        code.extend(rhs_code);
+
+        let mut result_loc = env.alloc_intermediate_val(0, 8);
+
+        match self.op {
+            BinOpType::Add => code.extend(pretty_code_vec![
+                Mov64RMd32 Rax Rbp (lhs_loc.as_rbp_offset());
+                Mov64RMd32 Rbx Rbp (rhs_loc.as_rbp_offset());
+                AddRR Rax Rbx;
+                Mov64Md32R Rbp (result_loc.as_rbp_offset()) Rax;
+            ]),
+            BinOpType::Sub => code.extend(pretty_code_vec![
+                Mov64RMd32 Rax Rbp (lhs_loc.as_rbp_offset());
+                Mov64RMd32 Rbx Rbp (rhs_loc.as_rbp_offset());
+                SubRR Rax Rbx;
+                Mov64Md32R Rbp (result_loc.as_rbp_offset()) Rax;
+            ]),
+            BinOpType::Mul => code.extend(pretty_code_vec![
+                Mov64RMd32 Rax Rbp (lhs_loc.as_rbp_offset());
+                Mov64RMd32 Rbx Rbp (rhs_loc.as_rbp_offset());
+                IMulR Rbx;
+                Mov64Md32R Rbp (result_loc.as_rbp_offset()) Rax;
+            ]),
+            BinOpType::Div => code.extend(pretty_code_vec![
+                Mov64RMd32 Rax Rbp (lhs_loc.as_rbp_offset());
+                Mov64RMd32 Rbx Rbp (rhs_loc.as_rbp_offset());
+                IDivR Rbx;
+                Mov64Md32R Rbp (result_loc.as_rbp_offset()) Rax;
+            ]),
+        }
+
+        Ok((code, result_loc.into()))
+    }
+}
+
+struct UnOp {
+    op: UnOpType,
+    exp: Box<dyn ExpIR>,
+}
+
+impl ExpIR for UnOp {
+    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
+        let (mut exp_code, exp_loc) = self.exp.eval(env)?;
+        let exp_loc = exp_loc.stack_loc();
+        let mut code = vec![];
+        let mut result_loc = env.alloc_intermediate_val(0, 8);
+
+        code.extend(exp_code);
+
+        match self.op {
+            UnOpType::Neg => code.extend(pretty_code_vec![
+                Mov64RMd32 Rbx Rbp (exp_loc.as_rbp_offset());
+                MovRImm Rax 0;
+                SubRR Rax Rbx;
+                Mov64Md32R Rbp (result_loc.as_rbp_offset()) Rax;
+            ]),
+        }
+
+        Ok((code, result_loc.into()))
+    }
+}
+
+fn eval_exp_ir(mut ir: Box<dyn ExpIR>) -> i32 {
+    let mut env = IREnv::new();
+    let (exp_code, result_loc) = ir.eval(&mut env).unwrap();
+
+    let rsp_off = env.stack_alloc.max_offset;
+
+    let mut code = pretty_code_vec![
+      PushR Rbp;
+      Mov64RR Rbp Rsp;
+      Sub64RImm Rsp rsp_off;
+    ];
+
+    code.extend(exp_code);
+
+    code.extend(pretty_code_vec![
+        Mov64RMd32 Rax Rbp (result_loc.stack_loc().as_rbp_offset());
+        Add64RImm Rsp (rsp_off.into());
+        PopR Rbp;
+        Ret;
+    ]);
+
+    let result: i32 = quick_run((), code);
+
+    result
+}
+
+#[test]
+fn test_ir() {
+    let mut env = IREnv::new();
+    let mut exp = /*a complex expression */
+        BinOp{
+            op: BinOpType::Add,
+            lhs: Box::new(
+                BinOp{
+                    op: BinOpType::Mul,
+                    lhs: Box::new(Literal(2)),
+                    rhs: Box::new(Literal(3)),
+                }
+            ),
+            rhs: Box::new(
+                BinOp{
+                    op: BinOpType::Mul,
+                    lhs: Box::new(Literal(4)),
+                    rhs: Box::new(Literal(5)),
+                }
+            ),
+        }
+        ;
+
+    let result = eval_exp_ir(Box::new(exp));
+    println!("Result = {result}");
+
+    assert!(result == 2 * 3 + 4 * 5);
 }
