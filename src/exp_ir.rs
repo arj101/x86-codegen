@@ -1,4 +1,7 @@
+use codegen::pretty_code_vec;
+
 use crate::encode::InsPtr;
+use crate::instructions::GPReg::*;
 use crate::instructions::*;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -30,20 +33,6 @@ enum RegLoc {
 enum MemoryLoc {
     StackLoc(StackVal),
     Reg(RegLoc),
-}
-
-type Instructions = Vec<InsPtr>;
-
-pub trait ExpIR {
-    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String>;
-}
-
-struct Literal(i32);
-
-impl ExpIR for Literal {
-    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
-        todo!()
-    }
 }
 
 struct RegisterAllocator {
@@ -114,7 +103,7 @@ impl StackAllocator {
         let mut rbp_offset = self.stack_offset + size;
 
         if self.alloc_gaps.len() > 0 {
-            let mut idx = None;
+            let mut idx: Option<usize> = None;
             for (i, gap) in self.alloc_gaps.iter().enumerate() {
                 if gap.size >= size {
                     rbp_offset = gap.offset;
@@ -238,14 +227,32 @@ impl IREnv {
     }
 }
 
-// fn eval_ir(ir: &ExprIR) -> (Vec<InsPtr>, MemoryLoc) {
-//     match ir {
-//         ExprIR::Literal(i) => MemoryLoc::Reg(RegLoc::Rax),
-//         ExprIR::Ident(ident) => MemoryLoc::RbpOffset(0),
-//         ExprIR::BinOp { op, lhs, rhs } => {
-//             let lhs_loc = eval_ir(lhs);
-//             let rhs_loc = eval_ir(rhs);
-//             match (lhs_loc, rhs_loc) {
-//                 (MemoryLoc::Reg(lhs_reg), MemoryLoc::Reg(rhs_reg)) =>
-//             }
-// }
+type Instructions = Vec<InsPtr>;
+
+pub trait ExpIR {
+    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String>;
+}
+
+struct Literal(i32);
+
+//evaluating a literal stores the value on stack(or register in the future!) and returns the location
+impl ExpIR for Literal {
+    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
+        let val = env.alloc_intermediate_val(self.0, 4);
+        let offset = val.offset as i32;
+        let offset = -offset;
+        let code = pretty_code_vec!(
+            Mov64Md32Imm32 Rbp offset self.0 ;
+        );
+        todo!()
+    }
+}
+
+struct Ident(Rc<String>);
+//evaluating an identifier only retrieves the offset from the stack map. No code generation is needed
+impl ExpIR for Ident {
+    fn eval(&mut self, env: &mut IREnv) -> Result<(Instructions, MemoryLoc), String> {
+        let loc = env.get_stack_loc(&self.0);
+        Ok((vec![], loc))
+    }
+}
