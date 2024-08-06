@@ -333,6 +333,7 @@ impl ExpIR for BinOp {
                 Mov64Md32R Rbp (result_loc.as_rbp_offset()) Rax;
             ]),
             BinOpType::Div => code.extend(pretty_code_vec![
+                Mov64RImm64 Rdx 0;
                 Mov64RMd32 Rax Rbp (lhs_loc.as_rbp_offset());
                 Mov64RMd32 Rbx Rbp (rhs_loc.as_rbp_offset());
                 IDivR Rbx;
@@ -402,17 +403,13 @@ fn test_ir() {
     let mut env = IREnv::new();
     let mut exp = /*a complex expression */
         BinOp{
-            op: BinOpType::Add,
+            op: BinOpType::Mul,
             lhs: Box::new(
-                BinOp{
-                    op: BinOpType::Mul,
-                    lhs: Box::new(Literal(2)),
-                    rhs: Box::new(Literal(3)),
-                }
+                Literal(2)
             ),
             rhs: Box::new(
                 BinOp{
-                    op: BinOpType::Mul,
+                    op: BinOpType::Div,
                     lhs: Box::new(Literal(4)),
                     rhs: Box::new(Literal(5)),
                 }
@@ -423,5 +420,5 @@ fn test_ir() {
     let result = eval_exp_ir(Box::new(exp));
     println!("Result = {result}");
 
-    assert!(result == 2 * 3 + 4 * 5);
+    assert!(result == 2 * (4 / 5));
 }
