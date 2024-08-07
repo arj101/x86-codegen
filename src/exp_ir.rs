@@ -401,7 +401,7 @@ fn eval_exp_ir(mut ir: Box<dyn ExpIR>) -> i32 {
 #[test]
 fn test_ir1() {
     let mut env = IREnv::new();
-    let mut exp = /*a complex expression */
+    let mut exp =
         BinOp{
             op: BinOpType::Mul,
             lhs: Box::new(
@@ -426,7 +426,7 @@ fn test_ir1() {
 #[test]
 fn test_ir2() {
     let mut env = IREnv::new();
-    let mut exp = /*a complex expression */
+    let mut exp =
         BinOp{
             op: BinOpType::Add,
             lhs: Box::new(
@@ -457,7 +457,7 @@ fn test_ir3() {
     //test addition, subtraction and negation
 
     let mut env = IREnv::new();
-    let mut exp = /*a complex expression */
+    let mut exp =
         BinOp{
             op: BinOpType::Add,
             lhs: Box::new(
