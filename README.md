@@ -22,6 +22,7 @@ An experimental x86 code generator written in Rust. Consists of a dynamic assemb
     - [x] Basic instruction encoders
     - [ ] Support for more 64bit instructions
     - [ ] SETcc instructions for logical expression evaluation
+    - [ ] SSE instructions
 - [ ] IR
   - [ ] Expression evaluater
     - [x] Arithmetic expressions
