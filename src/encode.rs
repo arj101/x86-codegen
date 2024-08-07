@@ -3,9 +3,9 @@ use codegen::x86;
 use libffi::high::ClosureMut1;
 use std::{mem::MaybeUninit, process::Stdio};
 
+use crate::instructions::Encodable2;
 use libffi::high::Closure1;
 use std::ffi::CStr;
-use crate::instructions::Encodable2;
 
 use ::core::ptr;
 use ::std::alloc;
@@ -18,7 +18,6 @@ impl Drop for InsPtr {
         // println!("dropped InsPtr");
     }
 }
-
 
 pub unsafe fn code_alloc_inner(code: &[u8]) -> *const () {
     let alloc_size = code.len().max(4096);

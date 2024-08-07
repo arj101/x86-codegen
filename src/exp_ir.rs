@@ -399,7 +399,7 @@ fn eval_exp_ir(mut ir: Box<dyn ExpIR>) -> i32 {
 }
 
 #[test]
-fn test_ir() {
+fn test_ir1() {
     let mut env = IREnv::new();
     let mut exp = /*a complex expression */
         BinOp{
@@ -421,4 +421,111 @@ fn test_ir() {
     println!("Result = {result}");
 
     assert!(result == 2 * (4 / 5));
+}
+
+#[test]
+fn test_ir2() {
+    let mut env = IREnv::new();
+    let mut exp = /*a complex expression */
+        BinOp{
+            op: BinOpType::Add,
+            lhs: Box::new(
+                BinOp{
+                    op: BinOpType::Mul,
+                    lhs: Box::new(Literal(2)),
+                    rhs: Box::new(Literal(3)),
+                }
+            ),
+            rhs: Box::new(
+                BinOp{
+                    op: BinOpType::Div,
+                    lhs: Box::new(Literal(4)),
+                    rhs: Box::new(Literal(5)),
+                }
+            ),
+        }
+        ;
+
+    let result = eval_exp_ir(Box::new(exp));
+    println!("Result = {result}");
+
+    assert!(result == 2 * 3 + 4 / 5);
+}
+
+#[test]
+fn test_ir3() {
+    //test addition, subtraction and negation
+
+    let mut env = IREnv::new();
+    let mut exp = /*a complex expression */
+        BinOp{
+            op: BinOpType::Add,
+            lhs: Box::new(
+                BinOp{
+                    op: BinOpType::Sub,
+                    lhs: Box::new(Literal(2)),
+                    rhs: Box::new(Literal(3)),
+                }
+            ),
+            rhs: Box::new(
+                UnOp{
+                    op: UnOpType::Neg,
+                    exp: Box::new(Literal(4)),
+                }
+            ),
+        }
+        ;
+
+    let result = eval_exp_ir(Box::new(exp));
+    println!("Result = {result}");
+
+    assert!(result == 2 - 3 + -4);
+}
+
+#[test]
+fn test_ir4() {
+    //test highly nested expressions
+
+    let mut env = IREnv::new();
+    let mut exp = /*a complex expression */
+        BinOp{
+            op: BinOpType::Add,
+            lhs: Box::new(
+                BinOp{
+                    op: BinOpType::Sub,
+                    lhs: Box::new(
+                        BinOp{
+                            op: BinOpType::Mul,
+                            lhs: Box::new(Literal(2)),
+                            rhs: Box::new(Literal(3)),
+                        }
+                    ),
+                    rhs: Box::new(
+                        BinOp{
+                            op: BinOpType::Div,
+                            lhs: Box::new(Literal(4)),
+                            rhs: Box::new(Literal(5)),
+                        }
+                    ),
+                }
+            ),
+            rhs: Box::new(
+                UnOp{
+                    op: UnOpType::Neg,
+                    exp: Box::new(
+                        BinOp{
+                            op: BinOpType::Add,
+                            lhs: Box::new(Literal(2)),
+                            rhs: Box::new(Literal(3)),
+                        }
+                    ),
+                }
+            ),
+        }
+        ;
+
+    let result = eval_exp_ir(Box::new(exp));
+    println!("Result = {result}");
+
+    assert!(result == (2 * 3 - 4 / 5) + -(2 + 3));
 }
