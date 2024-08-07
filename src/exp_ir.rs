@@ -487,7 +487,7 @@ fn test_ir4() {
     //test highly nested expressions
 
     let mut env = IREnv::new();
-    let mut exp = /*a complex expression */
+    let mut exp =
         BinOp{
             op: BinOpType::Add,
             lhs: Box::new(
