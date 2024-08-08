@@ -30,7 +30,9 @@ An experimental x86 code generator written in Rust. Consists of a dynamic assemb
       - [ ] AND, OR
       - [ ] <=, <, ==, >, >=, !=
     - [ ] Expression simplification
+    - [ ] Floating point expressions (requires SSE instructions)
   - [ ] Statement builder
     - [ ] Branching constructs
     - [ ] Looping constructs
   - [ ] Optimizers
+    - [ ] Context dependend encoder
