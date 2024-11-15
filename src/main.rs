@@ -8,6 +8,8 @@ mod ir;
 
 use crate::encode::{code_alloc_inner, InsPtr};
 use crate::instructions::{GPReg::*, *};
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::process::Stdio;
 
 use codegen::pretty_code_vec;
@@ -97,13 +99,16 @@ fn main() {
     //     "result = {}",
     //     quick_run::<extern "C" fn(i32) -> i32, i32>(fc_ptr, code)
     // );
-    //
+    
+    let mut output = vec![];
+    let oref = &mut output;
     let mut f = |i: i32| {
         println!("value = {i}");
+        oref.push(i);
     };
 
     let fn_mut_ref = &mut f;
-    let fc_ = libffi::high::Closure1::new(&mut f);
+    let fc_ = libffi::high::ClosureMut1::new(&mut f);
     let fc = fc_.code_ptr();
     let fc_ptr: extern "C" fn(i32) -> () = unsafe { std::mem::transmute(fc) };
 
@@ -117,6 +122,10 @@ fn main() {
         IRIns::InitStore32 {
             dest: ident!("hello"),
             val: 123,
+        },
+        IRIns::InitStore32 {
+            dest: ident!("hello1"),
+            val: 10,
         },
         // IRIns::Print32 {
         //     val: Val::Literal(12),
@@ -135,24 +144,29 @@ fn main() {
         IRIns::Print32 {
             val: Val::Ident(Rc::new("hello".to_string())),
         },
-        IRIns::Add32 {
+        IRIns::Sub32 {
             dest: ident!("hello"),
             val1: Val::Ident(ident!("hello")),
-            val2: Val::Literal(-23),
+            val2: Val::Literal(23),
         },
         IRIns::Print32 {
             val: Val::Ident(Rc::new("hello".to_string())),
+        },
+        IRIns::Add32 {
+            dest: ident!("hello"),
+            val1: Val::Ident(ident!("hello1")),
+            val2: Val::Literal(-32),
         },
         IRIns::Print32 {
             val: Val::Ident(Rc::new("hello".to_string())),
         },
     ]);
 
-    // fc_ptr(1);
 
     let f = encode!(inss => extern "C" fn(extern "C" fn (i32) -> ()) -> i32);
     let result = f(fc_ptr);
-    println!("here");
-    println!("result = {result:#X}");
-    // println!("result = {}", crate::quick_run::<extern "C" fn(i32) -> (), i32>(fc_ptr, inss));
+
+    drop(fc_);
+
+    println!("outputs = {output:?}");
 }

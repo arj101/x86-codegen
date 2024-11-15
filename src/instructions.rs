@@ -3,7 +3,7 @@ use std::io::Write;
 use codegen::x86;
 
 #[rustfmt::skip]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum GPReg {
     Al, Ax, Eax, Rax, Mm0, Xmm0, // R/M = 0
     Cl, Cx, Ecx, Rcx, Mm1, Xmm1, // R/M = 1
