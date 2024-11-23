@@ -86,7 +86,7 @@ use codegen::pretty_code_vec;
 type VarName = Rc<String>;
 type StackOffset = usize;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum VarLoc {
     RegisterLoc(GPReg),
     StackLoc(StackOffset),
@@ -125,6 +125,8 @@ struct IREncoder {
     free_regs: HashSet<GPReg>,
     stack_top: usize,
     auto_name_count: usize,
+
+    temp_scopes: Vec<HashSet<VarName>>,
 }
 
 impl Default for IREncoder {
@@ -138,6 +140,7 @@ impl Default for IREncoder {
             auto_name_count: 0,
             free_regs: [Rax, Rcx, Rdx, Rsi, Rdi].into(),
             available_regs: [Rax, Rcx, Rdx, Rsi, Rdi].into(),
+            temp_scopes: vec![HashSet::new()],
         }
     }
 }
@@ -210,6 +213,7 @@ impl IREncoder {
     }
 
     fn move_var_to_stack(&mut self, varname: &VarName, gen_code: bool) {
+        println!("Moving variable to stack: {}", varname);
         let var = self
             .var_map
             .get(varname)
@@ -222,7 +226,7 @@ impl IREncoder {
                     **self.reg_rev_map.get(&reg).unwrap() == **varname,
                     "unexpected reg var map"
                 );
-                self.free_reg(reg);
+                assert!(self.free_reg(reg).is_ok());
                 assert!(
                     self.stack_rev_map.get(&var.stack_loc).is_none(),
                     "variable home stack loc was reallocated by another"
@@ -259,6 +263,7 @@ impl IREncoder {
 
     fn move_var_to_reg(&mut self, varname: &VarName, new_reg: GPReg, gen_code: bool) {
         let var = self.var_map.get(varname).expect("Unknown variable").clone();
+        println!("Moving variable {:?} to register {:?}", varname, new_reg);
         match var.var_loc {
             VarLoc::RegisterLoc(reg) if reg == new_reg => {
                 println!("Variable already in the same register, not moving")
@@ -273,14 +278,14 @@ impl IREncoder {
                     self.reg_rev_map.get(&new_reg).is_none(),
                     "register already occupied"
                 );
-                self.unfree_reg(new_reg);
+                assert!(self.unfree_reg(new_reg).is_ok());
+
                 self.reg_rev_map.insert(new_reg, Rc::clone(varname));
                 self.var_map.get_mut(varname).unwrap().var_loc = VarLoc::RegisterLoc(new_reg);
                 if gen_code {
                     let ins = pretty_code_vec![
                         Mov64RR new_reg reg;
                     ];
-
                     self.encoded_ir.extend(ins);
                 }
             }
@@ -334,14 +339,61 @@ impl IREncoder {
         }
     }
 
-    fn load_or_alloc_val(&mut self, var: &Val<i32>) -> VarName {
+    fn push_tempscope(&mut self) {
+        self.temp_scopes.push(HashSet::new());
+    }
+
+    fn pop_tempscope(&mut self) {
+        assert!(self.temp_scopes.len() > 0, "no tempscope to pop");
+    }
+
+    fn free_tempvars(&mut self) {
+        let temp_scope = self.temp_scopes.last().unwrap();
+        for varname in temp_scope.clone() {
+            let var = self.var_map.get(&varname).unwrap();
+            if let VarLoc::RegisterLoc(reg) = var.var_loc {
+                self.free_reg(reg);
+            }
+        }
+    }
+
+    fn alloc_regvar(&mut self, name: VarName) -> Result<GPReg, ()> {
+        let reg = self.unfree_any_reg()?;
+        let var_meta = VarMetadata {
+            name: Rc::clone(&name),
+            var_loc: VarLoc::RegisterLoc(reg),
+            stack_loc: 0,
+        };
+        self.var_map.insert(Rc::clone(&name), var_meta);
+        self.reg_rev_map.insert(reg, name);
+
+        Ok(reg)
+    }
+
+    fn alloc_tempvar(&mut self, prefer_register: bool) -> VarName {
+        let name = format!("temp_{}", self.auto_name_count);
+        self.auto_name_count += 1;
+        self.temp_scopes
+            .last_mut()
+            .unwrap()
+            .insert(Rc::new(name.clone()));
+        let varname = Rc::new(name);
+
+        if let Ok(reg) = self.alloc_regvar(Rc::clone(&varname)) {
+            println!("Allocated tempvar {:?} to register {:?}", varname, reg);
+            return varname;
+        }
+
+        self.alloc_var(Rc::clone(&varname), 8);
+        println!("Allocated tempvar {:?} to stack", varname);
+        varname
+    }
+
+    fn load_or_alloc_val(&mut self, var: &Val<i32>, prefer_register: bool) -> VarName {
         match var {
             Val::Ident(varname) => Rc::clone(varname),
             Val::Literal(val) => {
-                let name = format!("temp_{}", self.auto_name_count);
-                self.auto_name_count += 1;
-                let varname = Rc::new(name);
-                self.alloc_var(Rc::clone(&varname), 8);
+                let varname = self.alloc_tempvar(prefer_register);
                 self.assign_var_value(&varname, *val);
                 varname
             }
@@ -360,6 +412,7 @@ impl IREncoder {
     }
 
     fn encode_ins(&mut self, ir: IRIns) {
+        self.push_tempscope();
         match ir {
             IRIns::InitStore32 { dest, val } => {
                 self.alloc_var(Rc::clone(&dest), 8);
@@ -369,8 +422,8 @@ impl IREncoder {
                 self.assign_var_value(&dest, val);
             }
             IRIns::Add32 { dest, val1, val2 } => {
-                let var1 = self.load_or_alloc_val(&val1);
-                let var2 = self.load_or_alloc_val(&val2);
+                let var1 = self.load_or_alloc_val(&val1, true);
+                let var2 = self.load_or_alloc_val(&val2, true);
 
                 if **var1 == **dest || **var2 == **dest {
                     let var2 = if **var1 == **dest { var2 } else { var1 };
@@ -394,11 +447,10 @@ impl IREncoder {
             }
 
             IRIns::Sub32 { dest, val1, val2 } => {
-                let var1 = self.load_or_alloc_val(&val1);
-                let var2 = self.load_or_alloc_val(&val2);
+                let var1 = self.load_or_alloc_val(&val1, true);
+                let var2 = self.load_or_alloc_val(&val2, true);
 
-                if **var1 == **dest || **var2 == **dest {
-                    let var2 = if **var1 == **dest { var2 } else { var1 };
+                if **var1 == **dest {
                     let rsrc = self.move_var_to_any_reg(&var2, &[]);
                     let rdest = self.move_var_to_any_reg(&dest, &[rsrc]);
 
@@ -418,6 +470,37 @@ impl IREncoder {
                 }
             }
 
+            IRIns::Mul32 { dest, val1, val2 } => {
+                self.unload_reg(Rax);
+                self.unload_reg(Rdx);
+
+                self.unfree_reg(Rax);
+                self.unfree_reg(Rdx);
+                let var1 = self.load_or_alloc_val(&val1, true);
+                let var2 = self.load_or_alloc_val(&val2, true);
+                self.free_reg(Rax);
+                self.free_reg(Rdx);
+
+                if **var1 == **dest || **var2 == **dest {
+                    let var2 = if **var1 == **dest { var2 } else { var1 };
+                    let rdst = self.move_var_to_reg(&dest, Rax, true);
+                    let src = self.move_var_to_any_reg(&var2, &[Rax, Rdx]);
+
+                    self.encoded_ir.extend(pretty_code_vec![
+                        IMulR src;
+                    ])
+                } else {
+                    self.load_var_temp_copy_to_reg(&var1, Rax);
+                    self.move_var_to_reg(&dest, Rax, false);
+
+                    let src = self.move_var_to_any_reg(&var2, &[Rax, Rdx]);
+
+                    self.encoded_ir.extend(pretty_code_vec![
+                        IMulR src;
+                    ])
+                }
+            }
+
             IRIns::Print32 { val } => {
                 // self.unload_reg(Rdi); //function parameter
                 // self.unload_reg(Rcx); //return value
@@ -426,7 +509,7 @@ impl IREncoder {
                     self.unload_reg(reg);
                 }
 
-                let var1 = self.load_or_alloc_val(&val);
+                let var1 = self.load_or_alloc_val(&val, true);
                 self.load_var_temp_copy_to_reg(&var1, Rdi);
 
                 self.encoded_ir.extend(pretty_code_vec![
@@ -435,6 +518,8 @@ impl IREncoder {
             }
             _ => todo!(),
         }
+        self.free_tempvars();
+        self.pop_tempscope();
     }
 }
 

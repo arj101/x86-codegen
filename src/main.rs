@@ -99,7 +99,7 @@ fn main() {
     //     "result = {}",
     //     quick_run::<extern "C" fn(i32) -> i32, i32>(fc_ptr, code)
     // );
-    
+
     let mut output = vec![];
     let oref = &mut output;
     let mut f = |i: i32| {
@@ -120,7 +120,7 @@ fn main() {
 
     let inss = ir_encode_fn(vec![
         IRIns::InitStore32 {
-            dest: ident!("hello"),
+            dest: ident!("hello0"),
             val: 123,
         },
         IRIns::InitStore32 {
@@ -134,34 +134,23 @@ fn main() {
         //     val: Val::Ident(Rc::new("hello".to_string())),
         // },
         IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello".to_string())),
+            val: Val::Ident(Rc::new("hello1".to_string())),
         },
-        IRIns::Add32 {
-            dest: ident!("hello"),
-            val1: Val::Ident(ident!("hello")),
-            val2: Val::Literal(-23),
-        },
-        IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello".to_string())),
-        },
-        IRIns::Sub32 {
-            dest: ident!("hello"),
-            val1: Val::Ident(ident!("hello")),
-            val2: Val::Literal(23),
-        },
-        IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello".to_string())),
-        },
-        IRIns::Add32 {
-            dest: ident!("hello"),
+        IRIns::Mul32 {
+            dest: ident!("hello0"),
             val1: Val::Ident(ident!("hello1")),
-            val2: Val::Literal(-32),
+            val2: Val::Literal(32),
         },
         IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello".to_string())),
+            val: Val::Ident(Rc::new("hello0".to_string())),
+        },
+        IRIns::Print32 {
+            val: Val::Ident(Rc::new("hello0".to_string())),
+        },
+        IRIns::Print32 {
+            val: Val::Ident(Rc::new("hello0".to_string())),
         },
     ]);
-
 
     let f = encode!(inss => extern "C" fn(extern "C" fn (i32) -> ()) -> i32);
     let result = f(fc_ptr);
