@@ -4,11 +4,13 @@ use std::rc::Rc;
 
 type Ident = Rc<String>;
 
+#[derive(Clone, Debug)]
 pub enum Val<T> {
     Ident(Ident),
     Literal(T),
 }
 
+#[derive(Clone, Debug)]
 pub enum IRIns {
     InitStore32 {
         dest: Ident,
@@ -151,29 +153,63 @@ impl IREncoder {
             self.free_regs.remove(&reg);
             return Ok(());
         }
+        println!(
+            "Register {reg:?} occupied by {:?}, unfree failed",
+            self.reg_rev_map.get(&reg)
+        );
         Err(())
     }
 
-    fn free_reg(&mut self, reg: GPReg) -> Result<(), ()> {
-        if self.reg_rev_map.get(&reg).is_some() {
-            self.reg_rev_map.remove(&reg);
-            self.free_regs.insert(reg);
-            return Ok(());
+    fn unfree_regs(&mut self, regs: &[GPReg]) -> Result<(), ()> {
+        let mut res = Ok(());
+        for reg in regs {
+            if let Err(_) = self.unfree_reg(*reg) {
+                res = Err(());
+            }
         }
-        Err(())
+        res
+    }
+
+    fn free_reg(&mut self, reg: GPReg) -> Result<(), ()> {
+        self.reg_rev_map.remove(&reg);
+        self.free_regs.insert(reg);
+        Ok(())
+    }
+
+    fn free_regs(&mut self, regs: &[GPReg]) -> Result<(), ()> {
+        let mut res = Ok(());
+        for reg in regs {
+            if let Err(_) = self.free_reg(*reg) {
+                res = Err(());
+            }
+        }
+        res
     }
 
     fn unload_reg(&mut self, reg: GPReg) {
         if let Some(varname) = self.reg_rev_map.get(&reg) {
+            println!("Unloading {varname} to stack");
             self.move_var_to_stack(&varname.clone(), true);
         }
     }
 
-    fn unfree_any_reg(&mut self) -> Result<GPReg, ()> {
+    fn unload_regs(&mut self, regs: &[GPReg]) {
+        for reg in regs {
+            self.unload_reg(*reg);
+        }
+    }
+
+    fn unfree_any_reg(&mut self, inuse: &[GPReg]) -> Result<GPReg, ()> {
         if self.free_regs.len() == 0 {
             return Err(());
         }
-        let reg = self.free_regs.iter().next().unwrap().clone();
+        let reg = self
+            .free_regs
+            .iter()
+            .filter(|r| !inuse.contains(r))
+            .next()
+            .unwrap()
+            .clone();
         self.unfree_reg(reg);
         Ok(reg)
     }
@@ -189,8 +225,10 @@ impl IREncoder {
                 .unwrap()
                 .clone();
             self.move_var_to_stack(&self.reg_rev_map.get(&reg).unwrap().clone(), true);
+            self.unfree_reg(reg).expect("Unfree should succeed");
+            return reg;
         }
-        self.unfree_any_reg().expect("Unfree should succeed")
+        self.unfree_any_reg(in_use).expect("Unfree should succeed")
     }
 
     fn alloc_var(&mut self, varname: VarName, size: usize) {
@@ -213,7 +251,7 @@ impl IREncoder {
     }
 
     fn move_var_to_stack(&mut self, varname: &VarName, gen_code: bool) {
-        println!("Moving variable to stack: {}", varname);
+        println!("Moving {:?} to stack", varname);
         let var = self
             .var_map
             .get(varname)
@@ -261,9 +299,18 @@ impl IREncoder {
         }
     }
 
-    fn move_var_to_reg(&mut self, varname: &VarName, new_reg: GPReg, gen_code: bool) {
+    fn move_var_to_reg(
+        &mut self,
+        varname: &VarName,
+        new_reg: GPReg,
+        gen_code: bool,
+        preallocated: bool,
+    ) {
         let var = self.var_map.get(varname).expect("Unknown variable").clone();
-        println!("Moving variable {:?} to register {:?}", varname, new_reg);
+        println!(
+            "Moving {:?} to register {:?} from {:?}, Free regs: {:?}",
+            varname, new_reg, var.var_loc, self.free_regs
+        );
         match var.var_loc {
             VarLoc::RegisterLoc(reg) if reg == new_reg => {
                 println!("Variable already in the same register, not moving")
@@ -273,12 +320,14 @@ impl IREncoder {
                     **self.reg_rev_map.get(&reg).unwrap() == **varname,
                     "unexpected reg var map"
                 );
-                self.reg_rev_map.remove(&reg);
+                assert!(self.free_reg(reg).is_ok(), "freeing register failed");
                 assert!(
                     self.reg_rev_map.get(&new_reg).is_none(),
                     "register already occupied"
                 );
-                assert!(self.unfree_reg(new_reg).is_ok());
+                if !preallocated {
+                    assert!(self.unfree_reg(new_reg).is_ok());
+                }
 
                 self.reg_rev_map.insert(new_reg, Rc::clone(varname));
                 self.var_map.get_mut(varname).unwrap().var_loc = VarLoc::RegisterLoc(new_reg);
@@ -297,9 +346,16 @@ impl IREncoder {
                 self.stack_rev_map.remove(&stack_off);
                 assert!(
                     self.reg_rev_map.get(&new_reg).is_none(),
-                    "register already occupied"
+                    "register already occupied. RegRevMap {:?}",
+                    self.reg_rev_map
                 );
-                self.unfree_reg(new_reg);
+
+                if !preallocated {
+                    assert!(
+                        self.unfree_reg(new_reg).is_ok(),
+                        "unfree new register failed"
+                    );
+                }
                 self.reg_rev_map.insert(new_reg, Rc::clone(varname));
                 self.var_map.get_mut(varname).unwrap().var_loc = VarLoc::RegisterLoc(new_reg);
                 if gen_code {
@@ -318,23 +374,30 @@ impl IREncoder {
         if let Some(other_var) = self.reg_rev_map.get(&reg).map(|v| v.clone()) {
             self.move_var_to_stack(&other_var, true);
         }
-        self.move_var_to_reg(varname, reg, true);
+        self.move_var_to_reg(varname, reg, true, false);
     }
 
     ///creates a temporary copy of a variable on a register
     ///does this by moving the variable in ad out of the specified register to leave a copy in
     ///place. The copy is not tracked and will be overwritten by other allocations
     fn load_var_temp_copy_to_reg(&mut self, varname: &VarName, reg: GPReg) {
+        println!(
+            "Loading temporary copy of variable {:?} to register {:?}",
+            varname, reg
+        );
         let var = self.var_map.get(varname).expect("variable not found");
         let original_loc = var.var_loc;
-
-        self.move_var_to_reg(varname, reg, true);
+        //no need to actually allocate it. Preallocated avoids unfreeing the register
         match original_loc {
-            VarLoc::StackLoc(_) => {
-                self.move_var_to_stack(varname, false);
+            VarLoc::StackLoc(off) => {
+                self.encoded_ir.extend(pretty_code_vec![
+                    Mov64RMd32 reg Rbp (-(off as i32 + 8));
+                ]);
             }
             VarLoc::RegisterLoc(prev_reg) => {
-                self.move_var_to_reg(varname, prev_reg, false);
+                self.encoded_ir.extend(pretty_code_vec![
+                    Mov64RR reg prev_reg;
+                ]);
             }
         }
     }
@@ -352,13 +415,15 @@ impl IREncoder {
         for varname in temp_scope.clone() {
             let var = self.var_map.get(&varname).unwrap();
             if let VarLoc::RegisterLoc(reg) = var.var_loc {
+                println!("Freeing tempvar {varname} from {reg:?}");
                 self.free_reg(reg);
+                self.reg_rev_map.remove(&reg);
             }
         }
     }
 
     fn alloc_regvar(&mut self, name: VarName) -> Result<GPReg, ()> {
-        let reg = self.unfree_any_reg()?;
+        let reg = self.unfree_any_reg(&[])?;
         let var_meta = VarMetadata {
             name: Rc::clone(&name),
             var_loc: VarLoc::RegisterLoc(reg),
@@ -405,7 +470,8 @@ impl IREncoder {
             VarLoc::RegisterLoc(reg) => reg,
             VarLoc::StackLoc(_) => {
                 let reg = self.unfree_or_move_any_reg(in_use);
-                self.move_var_to_reg(var, reg, true);
+                println!("Moving {var:?} to any register. Register {reg:?}",);
+                self.move_var_to_reg(var, reg, true, true);
                 reg
             }
         }
@@ -413,6 +479,7 @@ impl IREncoder {
 
     fn encode_ins(&mut self, ir: IRIns) {
         self.push_tempscope();
+        println!("\n:: Encoding IR: {ir:?}");
         match ir {
             IRIns::InitStore32 { dest, val } => {
                 self.alloc_var(Rc::clone(&dest), 8);
@@ -437,7 +504,7 @@ impl IREncoder {
                     let dest_reg = self.unfree_or_move_any_reg(&[]);
                     self.load_var_temp_copy_to_reg(&var1, dest_reg);
 
-                    self.move_var_to_reg(&dest, dest_reg, false);
+                    self.move_var_to_reg(&dest, dest_reg, false, true);
                     let src_reg = self.move_var_to_any_reg(&var2, &[dest_reg]);
 
                     self.encoded_ir.extend(pretty_code_vec![
@@ -461,29 +528,25 @@ impl IREncoder {
                     let dest_reg = self.unfree_or_move_any_reg(&[]);
                     self.load_var_temp_copy_to_reg(&var1, dest_reg);
 
-                    self.move_var_to_reg(&dest, dest_reg, false);
                     let src_reg = self.move_var_to_any_reg(&var2, &[dest_reg]);
 
                     self.encoded_ir.extend(pretty_code_vec![
                         SubRR dest_reg src_reg;
                     ]);
+                    self.move_var_to_reg(&dest, dest_reg, false, true);
                 }
             }
 
             IRIns::Mul32 { dest, val1, val2 } => {
-                self.unload_reg(Rax);
-                self.unload_reg(Rdx);
+                self.unload_regs(&[Rax, Rdx]);
+                self.unfree_regs(&[Rax, Rdx]);
 
-                self.unfree_reg(Rax);
-                self.unfree_reg(Rdx);
                 let var1 = self.load_or_alloc_val(&val1, true);
                 let var2 = self.load_or_alloc_val(&val2, true);
-                self.free_reg(Rax);
-                self.free_reg(Rdx);
 
                 if **var1 == **dest || **var2 == **dest {
                     let var2 = if **var1 == **dest { var2 } else { var1 };
-                    let rdst = self.move_var_to_reg(&dest, Rax, true);
+                    let rdst = self.move_var_to_reg(&dest, Rax, true, true);
                     let src = self.move_var_to_any_reg(&var2, &[Rax, Rdx]);
 
                     self.encoded_ir.extend(pretty_code_vec![
@@ -491,13 +554,40 @@ impl IREncoder {
                     ])
                 } else {
                     self.load_var_temp_copy_to_reg(&var1, Rax);
-                    self.move_var_to_reg(&dest, Rax, false);
+                    self.move_var_to_reg(&dest, Rax, false, true);
 
                     let src = self.move_var_to_any_reg(&var2, &[Rax, Rdx]);
 
                     self.encoded_ir.extend(pretty_code_vec![
+                        XorRR Rdx Rdx;
                         IMulR src;
                     ])
+                }
+            }
+
+            IRIns::Div32 { dest, val1, val2 } => {
+                self.unload_regs(&[Rax, Rdx]);
+
+                self.unfree_regs(&[Rax, Rdx]);
+                let var1 = self.load_or_alloc_val(&val1, true);
+                let var2 = self.load_or_alloc_val(&val2, true);
+
+                if **var1 == **dest {
+                    let src = self.move_var_to_any_reg(&var2, &[Rax, Rdx]);
+                    let rdst = self.move_var_to_reg(&dest, Rax, true, true);
+
+                    self.encoded_ir.extend(pretty_code_vec![
+                        IDivR src;
+                    ])
+                } else {
+                    self.load_var_temp_copy_to_reg(&var1, Rax);
+                    let src = self.move_var_to_any_reg(&var2, &[Rax, Rdx]);
+
+                    self.encoded_ir.extend(pretty_code_vec![
+                        Cdq;
+                        IDivR src;
+                    ]);
+                    self.move_var_to_reg(&dest, Rax, false, true);
                 }
             }
 

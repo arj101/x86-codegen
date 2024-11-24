@@ -103,7 +103,7 @@ fn main() {
     let mut output = vec![];
     let oref = &mut output;
     let mut f = |i: i32| {
-        println!("value = {i}");
+        println!(">>> {i}");
         oref.push(i);
     };
 
@@ -118,37 +118,53 @@ fn main() {
         };
     };
 
+    macro_rules! ident_val {
+        ($s:expr) => {
+            Val::Ident(Rc::new(($s).to_string()))
+        };
+    };
+
+    macro_rules! li32 {
+        ($s:expr) => {
+            Val::Literal($s)
+        };
+    };
+
     let inss = ir_encode_fn(vec![
         IRIns::InitStore32 {
             dest: ident!("hello0"),
-            val: 123,
+            val: -10,
         },
         IRIns::InitStore32 {
             dest: ident!("hello1"),
-            val: 10,
+            val: -11,
         },
-        // IRIns::Print32 {
-        //     val: Val::Literal(12),
-        // },
-        // IRIns::Print32 {
-        //     val: Val::Ident(Rc::new("hello".to_string())),
-        // },
         IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello1".to_string())),
+            val: ident_val!("hello0"),
         },
         IRIns::Mul32 {
             dest: ident!("hello0"),
-            val1: Val::Ident(ident!("hello1")),
-            val2: Val::Literal(32),
+            val1: ident_val!("hello0"),
+            val2: li32!(-124),
         },
         IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello0".to_string())),
+            val: ident_val!("hello0"),
+        },
+        IRIns::Mul32 {
+            dest: ident!("hello0"),
+            val2: li32!(-200),
+            val1: ident_val!("hello0"),
         },
         IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello0".to_string())),
+            val: ident_val!("hello0"),
+        },
+        IRIns::Div32 {
+            dest: ident!("hello0"),
+            val1: ident_val!("hello1"),
+            val2: li32!(2),
         },
         IRIns::Print32 {
-            val: Val::Ident(Rc::new("hello0".to_string())),
+            val: ident_val!("hello0"),
         },
     ]);
 

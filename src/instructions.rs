@@ -426,6 +426,8 @@ x86! {Call,
 x86!(0xf8, Clc);
 x86!(0xfc, Cld);
 
+x86!(0x99, Cdq);
+
 x86! {Cmp,
     0x3D, EaxImm, val:u32 => [Imm32(*val)]
     0x81, RImm, op1:GPReg, val:i32 => [ModRM(Reg, 7, *op1) Imm32(*val)]
@@ -565,6 +567,10 @@ x86! {Jmp,
 
 x86! {Jmp,
     [0xE9], Rel32, label:LabelField => [Rel32(label)]
+}
+
+x86! {Xor,
+    [0x33], RR, op1:GPReg, op2:GPReg => [ModRM(Reg, *op1, *op2)]
 }
 
 x86! {Jmp,
